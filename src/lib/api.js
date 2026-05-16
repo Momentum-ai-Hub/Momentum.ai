@@ -223,7 +223,8 @@ export async function analyzeEarnings(ticker, earningsData, history, perf30d, pu
 "8. Perf 30J>+15% => NEUTRE — titres de fond != earnings plays (FNV)\n" +
 "9. Toujours scanner Euronext Paris systematiquement (Vallourec/Valneva)\n\n" +
 "PRINCIPE FONDAMENTAL : Resultat observe = Competence + Variance\n" +
-"Ne jamais : augmenter sans edge / ignorer stop loss / chaser gap >+12% / entrer si +15% sur 30J / confondre titre de fond et earnings play";
+"Ne jamais : augmenter sans edge / ignorer stop loss / chaser gap >+12% / entrer si +15% sur 30J / confondre titre de fond et earnings play" +
+"FORMAT VERDICT FINAL OBLIGATOIRE : Apres le tableau checklist, rediger un paragraphe narratif de 4-6 lignes expliquant le raisonnement complet — pourquoi ce verdict, quels signaux ont ete determinants, quel est le risque principal, et la conclusion actionnable claire pour le trader.";
 
 const userMessage = "Analyse earnings pour " + ticker + ".\n" +
   "Donnees earnings : " + JSON.stringify(earningsData) + "\n" +
