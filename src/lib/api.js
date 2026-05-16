@@ -247,23 +247,13 @@ const userMessage = "Analyse earnings pour " + ticker + ".\n" +
 
 // ─── ANTHROPIC CLAUDE : Classification ticker (Correctif v1.1) ───────────────
 export async function classifyTicker(name, ticker) {
-  const system = `Tu es un classificateur de titres boursiers.
-Retourne UNIQUEMENT un JSON valide, rien d'autre, sans backticks.
-{
-  "secteur": "[un des 21 secteurs : SEMICONDUCTEURS / MÉMOIRE & STOCKAGE / INFRA AI & CLOUD / NUCLÉAIRE & URANIUM / PÉTROLE & GAZ / ÉNERGIE RENOUVELABLE / OR & MÉTAUX PRÉCIEUX / LITHIUM & BATTERIES / TERRES RARES & STRATÉGIQUES / MINES & MÉTAUX DE BASE / DÉFENSE & AÉROSPATIALE / SPACE & SATELLITE / QUANTIQUE & DEEP TECH / ROBOTIQUE & AUTOMATISATION / CHIMIE & MATÉRIAUX / LUXE & CONSO PREMIUM / INFRA & CONSTRUCTION / FINANCE & FINTECH / BIOTECH & MEDTECH / CRYPTO MINING / TELECOM & OPTIQUE]",
-  "driver_principal": "[ex: Prix or / Cycle SOX / Prix pétrole WTI...]",
-  "matieres_premieres": ["liste des MP corrélées"],
-  "type": "[EARNINGS PLAY / TITRE DE FOND / SPÉCULATIF]",
-  "bourse": "[NYSE / NASDAQ / XETRA / EURONEXT PARIS / LSE / EURONEXT AMSTERDAM / SIX / BORSA MILANO / BME MADRID]",
-  "earnings_play": true,
-  "already_priced_in_risk": false
-}`;
+  const system = "Tu es un classificateur de titres boursiers. Retourne UNIQUEMENT un JSON valide, rien d'autre, sans backticks. { \"secteur\": \"[un des 21 secteurs]\", \"driver_principal\": \"[ex: Prix or]\", \"matieres_premieres\": [\"liste\"], \"type\": \"[EARNINGS PLAY / TITRE DE FOND / SPECULATIF]\", \"bourse\": \"[NYSE / NASDAQ / XETRA...]\", \"earnings_play\": true, \"already_priced_in_risk\": false }";
 
-  const response = await fetch('/api/claude', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ system, message: `Ticker : ${name} (${ticker})` }),
-  });
+const response = await fetch('/api/claude', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ system, messages: [{ role: 'user', content: "Ticker : " + name + " (" + ticker + ")" }] }),
+});
 
   if (!response.ok) throw new Error('Claude classify error');
   const data = await response.json();
