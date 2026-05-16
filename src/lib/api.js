@@ -103,9 +103,7 @@ const userMessage = "Analyse earnings pour " + ticker + ".\n" +
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-    system: SYSTEM_PROMPT,
-    messages: [{ role: 'user', content: userMessage }]
-}),
+    body: JSON.stringify({ system: SYSTEM_PROMPT, messages: [{ role: 'user', content: userMessage }] }),
 
   if (!response.ok) throw new Error('Claude API error');
   const data = await response.json();
