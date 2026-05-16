@@ -225,12 +225,12 @@ export async function analyzeEarnings(ticker, earningsData, history, perf30d, pu
 "PRINCIPE FONDAMENTAL : Resultat observe = Competence + Variance\n" +
 "Ne jamais : augmenter sans edge / ignorer stop loss / chaser gap >+12% / entrer si +15% sur 30J / confondre titre de fond et earnings play";
 
-  const userMessage = `Analyse earnings pour ${ticker}.
-Données earnings : ${JSON.stringify(earningsData)}
-Historique 4 trimestres : ${JSON.stringify(history)}
-Performance 30 jours : ${perf30d !== null ? perf30d.toFixed(2) + '%' : 'non disponible'}
-Put/Call ratio : ${putCall !== null ? putCall.toFixed(2) : 'non disponible'}
-Short interest : ${shortInterest !== null ? shortInterest : 'non disponible'}`;
+const userMessage = "Analyse earnings pour " + ticker + ".\n" +
+  "Donnees earnings : " + JSON.stringify(earningsData) + "\n" +
+  "Historique 4 trimestres : " + JSON.stringify(history) + "\n" +
+  "Performance 30 jours : " + (perf30d !== null ? perf30d.toFixed(2) + "%" : "non disponible") + "\n" +
+  "Put/Call ratio : " + (putCall !== null ? putCall.toFixed(2) : "non disponible") + "\n" +
+  "Short interest : " + (shortInterest !== null ? shortInterest : "non disponible");
 
   const response = await fetch('/api/claude', {
     method: 'POST',
