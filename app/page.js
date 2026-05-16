@@ -1,10 +1,9 @@
 'use client';
-import { useState } from 'react';
-import EarningsModule    from '../components/EarningsModule';
-import DriftModule       from '../components/DriftModule';
-import MomentumModule    from '../components/MomentumModule';
-import CommoditiesModule from '../components/CommoditiesModule';
-import MorningEdgeModule from '../components/MorningEdgeModule';
+import EarningsModule from '../src/components/EarningsModule'
+import DriftModule from '../src/components/DriftModule'
+import MomentumModule from '../src/components/MomentumModule'
+import CommoditiesModule from '../src/components/CommoditiesModule'
+import MorningEdgeModule from '../src/components/MorningEdgeModule'
 
 const TRACK_RECORD = [
   { date:'07/05', ticker:'DDOG',  verdict:'BUY',       resultat:'+30%',             ok:true  },
