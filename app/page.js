@@ -1,4 +1,5 @@
 'use client';
+import { useState } from 'react';
 import EarningsModule from '../src/components/EarningsModule'
 import DriftModule from '../src/components/DriftModule'
 import MomentumModule from '../src/components/MomentumModule'
