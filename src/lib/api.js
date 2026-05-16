@@ -194,7 +194,7 @@ LEÇONS INTÉGRÉES :
 9. Toujours scanner Euronext Paris systématiquement (Vallourec/Valneva)
 
 PRINCIPE FONDAMENTAL : Résultat observé = Compétence + Variance
-Ne jamais : augmenter sans edge · ignorer stop loss · chaser gap >+12% · entrer si +15% sur 30J · confondre titre de fond et earnings play`;
+Ne jamais : augmenter sans edge · ignorer stop loss · chaser gap >+12% · entrer si +15% sur 30J · confondre titre de fond et earnings play;
 
   const userMessage = `Analyse earnings pour ${ticker}.
 Données earnings : ${JSON.stringify(earningsData)}
