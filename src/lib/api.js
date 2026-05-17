@@ -318,56 +318,40 @@ Retourne UNIQUEMENT le tableau JSON. Rien d'autre.`;
   }
 }
 
-// ─── SUPABASE : Sauvegarder les tickers classifiés ───────────────────────────
+// ─── PORTFOLIO : Sauvegarder via route API serveur ───────────────────────────
 export async function saveTickersToSupabase(tickers) {
-  const rows = tickers.map(t => ({
-    ticker:                 t.ticker,
-    name:                   t.name,
-    secteur:                t.secteur,
-    bourse:                 t.bourse                 || 'AUTRE',
-    type:                   t.type                   || 'TITRE DE FOND',
-    driver_principal:       t.driver_principal       || '',
-    earnings_play:          t.earnings_play          ?? false,
-    already_priced_in_risk: t.already_priced_in_risk ?? false,
-    matieres_premieres:     t.matieres_premieres     ?? [],
-  }));
-
-  // Upsert sur ticker pour éviter les doublons
-  const { error } = await supabase
-    .from('portfolio_tickers')
-    .upsert(rows, { onConflict: 'ticker' });
-
-  if (error) throw new Error(error.message);
-  return rows.length;
+  const res = await fetch('/api/portfolio', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tickers }),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error || 'Save error');
+  }
+  const data = await res.json();
+  return data.count;
 }
 
-// ─── SUPABASE : Charger le portfolio ─────────────────────────────────────────
+// ─── PORTFOLIO : Charger via route API serveur ───────────────────────────────
 export async function loadPortfolioFromSupabase() {
-  const { data, error } = await supabase
-    .from('portfolio_tickers')
-    .select('*')
-    .order('secteur', { ascending: true });
-
-  if (error) throw new Error(error.message);
-
-  // Grouper par secteur + éviter les doublons
-  return (data || []).reduce((acc, row) => {
-    if (!acc[row.secteur]) acc[row.secteur] = [];
-    if (!acc[row.secteur].includes(row.name)) {
-      acc[row.secteur].push(row.name);
-    }
-    return acc;
-  }, {});
+  const res = await fetch('/api/portfolio');
+  if (!res.ok) throw new Error('Load error');
+  const data = await res.json();
+  return data.data || {};
 }
 
-// ─── SUPABASE : Supprimer des tickers ────────────────────────────────────────
+// ─── PORTFOLIO : Supprimer via route API serveur ─────────────────────────────
 export async function deleteTickersFromSupabase(tickers) {
-  const { error } = await supabase
-    .from('portfolio_tickers')
-    .delete()
-    .in('ticker', tickers);
-
-  if (error) throw new Error(error.message);
+  const res = await fetch('/api/portfolio', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tickers }),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error || 'Delete error');
+  }
 }
 
 // ─── ANTHROPIC CLAUDE : Pre-earnings drift ───────────────────────────────────
