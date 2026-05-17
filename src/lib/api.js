@@ -3,6 +3,13 @@ const FINNHUB_KEY    = process.env.NEXT_PUBLIC_FINNHUB_KEY;
 const FMP_KEY        = process.env.NEXT_PUBLIC_FMP_KEY;
 const TWELVEDATA_KEY = process.env.NEXT_PUBLIC_TWELVEDATA_KEY;
 
+// ── SUPABASE CLIENT (instance unique) ──────────────
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+);
+
 // ─── FMP : Earnings du jour ───────────────────────────────────────────────────
 export async function getEarningsToday() {
   const today = new Date().toISOString().split('T')[0];
@@ -311,28 +318,21 @@ Retourne UNIQUEMENT le tableau JSON. Rien d'autre.`;
   }
 }
 
-
-// ─── SUPABASE : Sauvegarde des tickers classifiés ────────────────────────────
+// ─── SUPABASE : Sauvegarder les tickers classifiés ───────────────────────────
 export async function saveTickersToSupabase(tickers) {
-  const { createClient } = await import('@supabase/supabase-js');
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  );
-
-  // Upsert sur ticker pour éviter les doublons
   const rows = tickers.map(t => ({
-    ticker:                t.ticker,
-    name:                  t.name,
-    secteur:               t.secteur,
-    bourse:                t.bourse || 'AUTRE',
-    type:                  t.type || 'TITRE DE FOND',
-    driver_principal:      t.driver_principal || '',
-    earnings_play:         t.earnings_play ?? false,
+    ticker:                 t.ticker,
+    name:                   t.name,
+    secteur:                t.secteur,
+    bourse:                 t.bourse                 || 'AUTRE',
+    type:                   t.type                   || 'TITRE DE FOND',
+    driver_principal:       t.driver_principal       || '',
+    earnings_play:          t.earnings_play          ?? false,
     already_priced_in_risk: t.already_priced_in_risk ?? false,
-    matieres_premieres:    t.matieres_premieres ?? [],
+    matieres_premieres:     t.matieres_premieres     ?? [],
   }));
 
+  // Upsert sur ticker pour éviter les doublons
   const { error } = await supabase
     .from('portfolio_tickers')
     .upsert(rows, { onConflict: 'ticker' });
@@ -341,15 +341,8 @@ export async function saveTickersToSupabase(tickers) {
   return rows.length;
 }
 
-
 // ─── SUPABASE : Charger le portfolio ─────────────────────────────────────────
 export async function loadPortfolioFromSupabase() {
-  const { createClient } = await import('@supabase/supabase-js');
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  );
-
   const { data, error } = await supabase
     .from('portfolio_tickers')
     .select('*')
@@ -357,13 +350,26 @@ export async function loadPortfolioFromSupabase() {
 
   if (error) throw new Error(error.message);
 
-  // Grouper par secteur → { SECTEUR: ['Name1', 'Name2', ...] }
+  // Grouper par secteur + éviter les doublons
   return (data || []).reduce((acc, row) => {
     if (!acc[row.secteur]) acc[row.secteur] = [];
-    acc[row.secteur].push(row.name);
+    if (!acc[row.secteur].includes(row.name)) {
+      acc[row.secteur].push(row.name);
+    }
     return acc;
   }, {});
 }
+
+// ─── SUPABASE : Supprimer des tickers ────────────────────────────────────────
+export async function deleteTickersFromSupabase(tickers) {
+  const { error } = await supabase
+    .from('portfolio_tickers')
+    .delete()
+    .in('ticker', tickers);
+
+  if (error) throw new Error(error.message);
+}
+
 // ─── ANTHROPIC CLAUDE : Pre-earnings drift ───────────────────────────────────
 export async function analyzeDrift(ticker, perf30d, earningsDate) {
   const system = `Tu es un analyste spécialisé dans le pre-earnings drift.
