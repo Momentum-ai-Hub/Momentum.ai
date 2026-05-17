@@ -2,31 +2,6 @@
 import { useState, useEffect } from 'react';
 import { classifyTicker, classifyBatch, saveTickersToSupabase, loadPortfolioFromSupabase } from '../lib/api';
 
-// ─── PORTEFEUILLE DE SECOURS (si Supabase vide ou erreur) ────────────────────
-const PORTFOLIO_FALLBACK = {
-  'SEMICONDUCTEURS': ['NVIDIA','AMD','Qualcomm','Intel','Marvell Technology','Applied Materials','ASML','Lam Research','Tokyo Electron','Aixtron'],
-  'MÉMOIRE & STOCKAGE': ['Micron','Seagate','Western Digital','Kioxia','SK Hynix','Everspin'],
-  'INFRA AI & CLOUD': ['Alphabet','Amazon','Meta','Apple','IBM','ServiceNow','Adobe','Datadog','DigitalOcean','Oracle','Salesforce','Workday','Broadcom'],
-  'NUCLÉAIRE & URANIUM': ['Cameco','CEZ','Oklo','Energy Fuels','Centrus'],
-  'PÉTROLE & GAZ': ['TotalEnergies','Eni','Repsol','Equinor','OMV','MOL','Vallourec','TechnipFMC'],
-  'ÉNERGIE RENOUVELABLE': ['RWE','Siemens Energy','Fluence','Bloom Energy','Plug Power','Fuel Cell','Xcel Energy','SolarEdge','HydroGraph Clean Power','Enovix'],
-  'OR & MÉTAUX PRÉCIEUX': ['Franco-Nevada','Gold Reserve','Antimony Resources'],
-  'LITHIUM & BATTERIES': ['Albemarle','SQM','Lithium Americas','Ganfeng','Electrovaya','Samsung SDI'],
-  'TERRES RARES': ['MP Materials','Lynas','Ucore','Rare Earth & Strategic Metals','Energy Transition'],
-  'MINES & MÉTAUX DE BASE': ['Freeport McMoRan','Glencore','Rio Tinto','BHP','Cleveland-Cliffs','5N Plus'],
-  'DÉFENSE & AÉROSPATIALE': ['Rheinmetall','Airbus','Rolls Royce','Boeing','GE Aerospace','TransDigm','Jabil','Axon Enterprise'],
-  'SPACE & SATELLITE': ['Rocket Lab','Intuitive Machines','AST SpaceMobile','Planet Labs'],
-  'QUANTIQUE & DEEP TECH': ['IonQ','D-Wave','Rigetti'],
-  'ROBOTIQUE & AUTO.': ['Kraken Robotics','ICOP S.p.A.','Harmonic Drive Systems','Digi Power X'],
-  'CHIMIE & MATÉRIAUX': ['Linde','Air Products','Air Liquide','Nutrien','Hawkins'],
-  'LUXE & CONSO PREMIUM': ['LVMH','Hermes','Ahold Delhaize','Monster Beverage'],
-  'INFRA & CONSTRUCTION': ['VINCI','Siemens','Lacroix','Planisware','IDEX','Waste Management','Equity Residential'],
-  'FINANCE & FINTECH': ['Goldman Sachs','Blackstone','BlackRock','Citigroup','Visa','Mastercard','Barclays','PNC Financial','State Street','Ares Management','Intercontinental Exchange'],
-  'BIOTECH & MEDTECH': ['Illumina','Nanobiotix','MedinCell'],
-  'CRYPTO MINING': ['HUT 8','Bitcoin'],
-  'TELECOM & OPTIQUE': ['Lumentum','Applied Optoelectronics','Raspberry Pi','Prosus','Corning','Nokia','F5','KLA Corporation','Cadence Design Systems','Synopsys','Texas Instruments'],
-};
-
 // ─── PORTFOLIO VIEW ───────────────────────────────────────────────────────────
 function PortfolioView() {
   const [search,    setSearch]    = useState('');
