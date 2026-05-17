@@ -264,6 +264,106 @@ const response = await fetch('/api/claude', {
   }
 }
 
+// ─── ANTHROPIC CLAUDE : Classification batch ─────────────────────────────────
+export async function classifyBatch(items) {
+  const system = `Tu es un classificateur de titres boursiers.
+Tu reçois une liste de titres au format JSON.
+Retourne UNIQUEMENT un tableau JSON valide, sans backticks, sans texte autour.
+Chaque objet a exactement ces champs :
+{
+  "ticker": "SYMBOL",
+  "name": "Nom complet",
+  "secteur": "UN des 21 secteurs",
+  "bourse": "NYSE | NASDAQ | TSE | LSE | XETRA | TSX | EURONEXT | AUTRE",
+  "type": "EARNINGS PLAY | TITRE DE FOND | SPÉCULATIF",
+  "driver_principal": "courte phrase",
+  "earnings_play": true | false,
+  "already_priced_in_risk": true | false,
+  "matieres_premieres": []
+}
+
+Les 21 secteurs (utilise EXACTEMENT ces noms) :
+SEMICONDUCTEURS | MÉMOIRE & STOCKAGE | INFRA AI & CLOUD | NUCLÉAIRE & URANIUM |
+PÉTROLE & GAZ | ÉNERGIE RENOUVELABLE | OR & MÉTAUX PRÉCIEUX | LITHIUM & BATTERIES |
+TERRES RARES | MINES & MÉTAUX DE BASE | DÉFENSE & AÉROSPATIALE | SPACE & SATELLITE |
+QUANTIQUE & DEEP TECH | ROBOTIQUE & AUTO. | CHIMIE & MATÉRIAUX | LUXE & CONSO PREMIUM |
+INFRA & CONSTRUCTION | FINANCE & FINTECH | BIOTECH & MEDTECH | CRYPTO MINING |
+TELECOM & OPTIQUE
+
+Retourne UNIQUEMENT le tableau JSON. Rien d'autre.`;
+
+  const response = await fetch('/api/claude', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      system,
+      messages: [{ role: 'user', content: `Classifie ces titres :\n${JSON.stringify(items, null, 2)}` }],
+    }),
+  });
+
+  if (!response.ok) throw new Error('Claude Batch error');
+  const data = await response.json();
+  const text = data.content?.[0]?.text ?? '[]';
+  try {
+    return JSON.parse(text.replace(/```json|```/g, '').trim());
+  } catch {
+    return [];
+  }
+}
+
+
+// ─── SUPABASE : Sauvegarde des tickers classifiés ────────────────────────────
+export async function saveTickersToSupabase(tickers) {
+  const { createClient } = await import('@supabase/supabase-js');
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  );
+
+  // Upsert sur ticker pour éviter les doublons
+  const rows = tickers.map(t => ({
+    ticker:                t.ticker,
+    name:                  t.name,
+    secteur:               t.secteur,
+    bourse:                t.bourse || 'AUTRE',
+    type:                  t.type || 'TITRE DE FOND',
+    driver_principal:      t.driver_principal || '',
+    earnings_play:         t.earnings_play ?? false,
+    already_priced_in_risk: t.already_priced_in_risk ?? false,
+    matieres_premieres:    t.matieres_premieres ?? [],
+  }));
+
+  const { error } = await supabase
+    .from('portfolio_tickers')
+    .upsert(rows, { onConflict: 'ticker' });
+
+  if (error) throw new Error(error.message);
+  return rows.length;
+}
+
+
+// ─── SUPABASE : Charger le portfolio ─────────────────────────────────────────
+export async function loadPortfolioFromSupabase() {
+  const { createClient } = await import('@supabase/supabase-js');
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  );
+
+  const { data, error } = await supabase
+    .from('portfolio_tickers')
+    .select('*')
+    .order('secteur', { ascending: true });
+
+  if (error) throw new Error(error.message);
+
+  // Grouper par secteur → { SECTEUR: ['Name1', 'Name2', ...] }
+  return (data || []).reduce((acc, row) => {
+    if (!acc[row.secteur]) acc[row.secteur] = [];
+    acc[row.secteur].push(row.name);
+    return acc;
+  }, {});
+}
 // ─── ANTHROPIC CLAUDE : Pre-earnings drift ───────────────────────────────────
 export async function analyzeDrift(ticker, perf30d, earningsDate) {
   const system = `Tu es un analyste spécialisé dans le pre-earnings drift.
