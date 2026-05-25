@@ -10,15 +10,25 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
-// ─── FMP : Earnings du jour ───────────────────────────────────────────────────
+// ─── Finnhub : Earnings du jour ───────────────────────────────────────────────────
 export async function getEarningsToday() {
   const today = new Date().toISOString().split('T')[0];
-  const url = `https://financialmodelingprep.com/api/v3/earning_calendar?from=${today}&to=${today}&apikey=${FMP_KEY}`;
+  const url = `https://finnhub.io/api/v1/calendar/earnings?from=${today}&to=${today}&token=${FINNHUB_KEY}`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error('FMP earnings error');
-  return res.json();
+  if (!res.ok) throw new Error(`Finnhub earnings ${res.status}`);
+  const data = await res.json();
+  
+  // Finnhub retourne { earningsCalendar: [...] }
+  const list = data.earningsCalendar ?? [];
+  
+  // Normaliser le format pour correspondre à ce qu'attend EarningsModule
+  return list.map(e => ({
+    symbol: e.symbol,
+    time: e.hour === 'bmo' ? 'BMO' : e.hour === 'amc' ? 'AMC' : e.hour ?? '?',
+    epsEstimate: e.epsEstimate,
+    revenueEstimate: e.revenueEstimate,
+  }));
 }
-
 // ─── FMP : Historique earnings (4 derniers trimestres) ───────────────────────
 export async function getEarningsHistory(ticker) {
   const url = `https://financialmodelingprep.com/api/v3/earnings-surprises/${ticker}?apikey=${FMP_KEY}`;
