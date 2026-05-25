@@ -1,125 +1,388 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { classifyTicker, classifyBatch, saveTickersToSupabase, loadPortfolioFromSupabase } from '../lib/api';
+import { classifyTicker, classifyBatch, saveTickersToSupabase } from '../lib/api';
 
-// ─── PORTFOLIO VIEW ───────────────────────────────────────────────────────────
-function PortfolioView() {
-  const [search,    setSearch]    = useState('');
-  const [open,      setOpen]      = useState(null);
-  const [portfolio, setPortfolio] = useState(PORTFOLIO_FALLBACK);
-  const [loading,   setLoading]   = useState(true);
+// ─── FAMILLES ─────────────────────────────────────────────────────────────────
+const FAMILLES = {
+  'TECH & IA': {
+    icon: '🤖', color: '#58a6ff',
+    secteurs: ['SEMICONDUCTEURS','MÉMOIRE & STOCKAGE','INFRA AI & CLOUD','TELECOM & OPTIQUE','QUANTIQUE & DEEP TECH'],
+  },
+  'ÉNERGIE': {
+    icon: '⚡', color: '#f0b429',
+    secteurs: ['NUCLÉAIRE & URANIUM','PÉTROLE & GAZ','ÉNERGIE RENOUVELABLE','CHIMIE & MATÉRIAUX'],
+  },
+  'RESSOURCES': {
+    icon: '🪨', color: '#e3b341',
+    secteurs: ['OR & MÉTAUX PRÉCIEUX','LITHIUM & BATTERIES','TERRES RARES','MINES & MÉTAUX DE BASE'],
+  },
+  'DÉFENSE & SPACE': {
+    icon: '🛡️', color: '#f85149',
+    secteurs: ['DÉFENSE & AÉROSPATIALE','SPACE & SATELLITE','ROBOTIQUE & AUTO.'],
+  },
+  'FINANCE': {
+    icon: '💰', color: '#3fb950',
+    secteurs: ['FINANCE & FINTECH','CRYPTO MINING'],
+  },
+  'AUTRE': {
+    icon: '🏗️', color: '#8b949e',
+    secteurs: ['INFRA & CONSTRUCTION','LUXE & CONSO PREMIUM','BIOTECH & MEDTECH'],
+  },
+};
 
-  useEffect(() => {
-    loadPortfolioFromSupabase()
-      .then(data => {
-        // Merge Supabase + fallback (Supabase prioritaire)
-        const merged = { ...PORTFOLIO_FALLBACK };
-        Object.entries(data).forEach(([secteur, noms]) => {
-          merged[secteur] = [...new Set([...(merged[secteur] || []), ...noms])];
-        });
-        setPortfolio(merged);
-      })
-      .catch(() => {}) // garde le fallback si erreur
-      .finally(() => setLoading(false));
-  }, []);
+const TYPE_COLOR = {
+  'EARNINGS PLAY': '#3fb950',
+  'TITRE DE FOND': '#58a6ff',
+  'SPÉCULATIF':    '#f85149',
+};
 
-  const filtered = Object.entries(portfolio).reduce((acc, [sector, tickers]) => {
-    const q = search.toLowerCase();
-    const matched = q ? tickers.filter(t => t.toLowerCase().includes(q)) : tickers;
-    if (matched.length) acc[sector] = matched;
-    return acc;
-  }, {});
+const PERIODS = ['1J','1S','1M','1A'];
+const PERIOD_KEY = { '1J':'change_1d','1S':'change_1w','1M':'change_1m','1A':'change_1y' };
 
-  const total = Object.values(portfolio).flat().length;
+function getFamilleForSecteur(secteur) {
+  for (const [fam, cfg] of Object.entries(FAMILLES)) {
+    if (cfg.secteurs.includes(secteur)) return fam;
+  }
+  return 'AUTRE';
+}
 
+function ibLink(ticker) {
+  return `https://www.interactivebrokers.com/en/index.php?f=2510&search=${ticker}`;
+}
+
+function fmtChange(val) {
+  if (val == null) return '—';
+  return `${val >= 0 ? '+' : ''}${val.toFixed(2)}%`;
+}
+
+function changeColor(val) {
+  if (val == null) return '#8b949e';
+  return val >= 0 ? '#3fb950' : '#f85149';
+}
+
+// ─── SPARKLINE ────────────────────────────────────────────────────────────────
+function Sparkline({ data }) {
+  if (!data) return <div style={{ width:70, height:28, background:'#161b22', borderRadius:4 }} />;
+  const pts = typeof data === 'string' ? data.split(',').map(Number) : data;
+  if (pts.length < 2) return <div style={{ width:70, height:28, background:'#161b22', borderRadius:4 }} />;
+  const min = Math.min(...pts), max = Math.max(...pts), range = max - min || 1;
+  const W = 70, H = 28;
+  const points = pts.map((v, i) =>
+    `${(i / (pts.length - 1)) * W},${H - ((v - min) / range) * H}`
+  ).join(' ');
+  const color = pts[pts.length - 1] >= pts[0] ? '#3fb950' : '#f85149';
   return (
-    <div>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
-                    marginBottom:'12px' }}>
-        <span style={{ fontSize:'11px', color:'#484f58' }}>
-          {loading ? 'Chargement...' : `${total} titres · ${Object.keys(portfolio).length} secteurs`}
-        </span>
+    <svg width={W} height={H}>
+      <polyline points={points} fill="none" stroke={color} strokeWidth="1.5"
+        strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+// ─── TICKER ROW ───────────────────────────────────────────────────────────────
+function TickerRow({ ticker, snapshot, period }) {
+  const change = snapshot?.[PERIOD_KEY[period]] ?? null;
+  return (
+    <div style={{
+      display:'flex', alignItems:'center', gap:8,
+      padding:'8px 10px',
+      borderBottom:'1px solid #161b22',
+    }}>
+      <div style={{
+        width:3, height:32, borderRadius:2, flexShrink:0,
+        background: TYPE_COLOR[ticker.type] || '#484f58',
+      }} />
+      <div style={{ flex:1, minWidth:0 }}>
+        <div style={{ fontSize:11, fontWeight:700, color:'#e6edf3' }}>{ticker.ticker}</div>
+        <div style={{ fontSize:10, color:'#484f58', overflow:'hidden',
+                       textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:120 }}>
+          {ticker.name}
+        </div>
       </div>
-      <input
-        value={search}
-        onChange={e => setSearch(e.target.value)}
-        placeholder="Rechercher un titre..."
-        style={{ ...inputStyle, marginBottom:'16px' }}
-      />
-      <div style={{ display:'flex', flexDirection:'column', gap:'8px' }}>
-        {Object.entries(filtered).map(([sector, tickers]) => (
-          <div key={sector} style={{ background:'#0d1117', border:'1px solid #21262d',
-                                      borderRadius:'10px', overflow:'hidden' }}>
-            <button
-              onClick={() => setOpen(open === sector ? null : sector)}
-              style={{ width:'100%', display:'flex', alignItems:'center',
-                       justifyContent:'space-between', padding:'12px 16px',
-                       background:'none', border:'none', cursor:'pointer' }}
-            >
-              <span style={{ fontSize:'12px', fontWeight:700, color:'#e6edf3' }}>{sector}</span>
-              <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
-                <span style={{ fontSize:'10px', color:'#484f58' }}>{tickers.length} titres</span>
-                <span style={{ fontSize:'12px', color:'#484f58' }}>{open === sector ? '▲' : '▼'}</span>
-              </div>
-            </button>
-            {open === sector && (
-              <div style={{ borderTop:'1px solid #161b22', padding:'12px 16px',
-                             display:'flex', flexWrap:'wrap', gap:'6px' }}>
-                {tickers.map(t => (
-                  <span key={t} style={{ fontSize:'11px', color:'#8b949e',
-                    background:'#161b22', borderRadius:'4px', padding:'3px 8px' }}>
-                    {t}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
+      <Sparkline data={snapshot?.sparkline_1m} />
+      <div style={{ textAlign:'right', minWidth:65 }}>
+        <div style={{ fontSize:11, fontWeight:700, color:'#e6edf3' }}>
+          {snapshot?.price ? `$${Number(snapshot.price).toFixed(2)}` : '—'}
+        </div>
+        <div style={{ fontSize:10, fontWeight:600, color: changeColor(change) }}>
+          {fmtChange(change)}
+        </div>
       </div>
+      <a href={ibLink(ticker.ticker)} target="_blank" rel="noopener noreferrer"
+        style={{ fontSize:9, color:'#484f58', background:'#161b22', borderRadius:4,
+                  padding:'2px 5px', textDecoration:'none', fontWeight:600, flexShrink:0 }}>
+        IB →
+      </a>
     </div>
   );
 }
 
-// ─── CLASSIFY VIEW ────────────────────────────────────────────────────────────
-function ClassifyView() {
-  const [mode,         setMode]         = useState('single');
+// ─── PORTFOLIO VIEW ───────────────────────────────────────────────────────────
+function PortfolioView({ tickers, snapshots, period, setPeriod }) {
+  const [openFamille, setOpenFamille] = useState(null);
+  const [openSecteur, setOpenSecteur] = useState(null);
+  const [search, setSearch] = useState('');
 
-  // Single
-  const [name,   setName]   = useState('');
+  const snapshotMap = {};
+  (snapshots || []).forEach(s => { snapshotMap[s.ticker] = s; });
+
+  const filtered = search
+    ? tickers.filter(t =>
+        t.name.toLowerCase().includes(search.toLowerCase()) ||
+        t.ticker.toLowerCase().includes(search.toLowerCase()))
+    : null;
+
+  return (
+    <div>
+      <div style={{ display:'flex', justifyContent:'space-between', marginBottom:10 }}>
+        <span style={{ fontSize:11, color:'#484f58' }}>{tickers.length} titres</span>
+        <span style={{ fontSize:11, color: snapshots.length > 0 ? '#3fb950' : '#484f58' }}>
+          {snapshots.length > 0 ? `✓ ${snapshots.length} prix` : '⏳ Snapshot en attente'}
+        </span>
+      </div>
+
+      {/* Période selector */}
+      <div style={{ display:'flex', gap:6, marginBottom:10 }}>
+        {PERIODS.map(p => (
+          <button key={p} onClick={() => setPeriod(p)} style={{
+            padding:'3px 10px', borderRadius:6, border:'none',
+            background: period === p ? '#f0b429' : '#161b22',
+            color: period === p ? '#0d1117' : '#8b949e',
+            fontSize:11, fontWeight:600, cursor:'pointer',
+          }}>{p}</button>
+        ))}
+      </div>
+
+      <input value={search} onChange={e => setSearch(e.target.value)}
+        placeholder="Rechercher..." style={{ ...inputStyle, marginBottom:12 }} />
+
+      {/* Résultats recherche */}
+      {filtered ? (
+        <div style={{ border:'1px solid #21262d', borderRadius:8, overflow:'hidden' }}>
+          {filtered.length === 0
+            ? <div style={{ padding:20, textAlign:'center', fontSize:12, color:'#484f58' }}>Aucun résultat</div>
+            : filtered.map(t => <TickerRow key={t.ticker} ticker={t} snapshot={snapshotMap[t.ticker]} period={period} />)
+          }
+        </div>
+      ) : (
+        /* Accordion famille → secteur → tickers */
+        Object.entries(FAMILLES).map(([famille, cfg]) => {
+          const famTickers = tickers.filter(t => cfg.secteurs.includes(t.secteur));
+          if (famTickers.length === 0) return null;
+          const famOpen = openFamille === famille;
+
+          return (
+            <div key={famille} style={{
+              marginBottom:6,
+              border:`1px solid ${famOpen ? cfg.color + '55' : '#21262d'}`,
+              borderRadius:10, overflow:'hidden',
+            }}>
+              <button onClick={() => { setOpenFamille(famOpen ? null : famille); setOpenSecteur(null); }}
+                style={{
+                  width:'100%', display:'flex', alignItems:'center',
+                  justifyContent:'space-between', padding:'11px 14px',
+                  background: famOpen ? `${cfg.color}11` : '#0d1117',
+                  border:'none', cursor:'pointer',
+                }}>
+                <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                  <span style={{ fontSize:15 }}>{cfg.icon}</span>
+                  <span style={{ fontSize:12, fontWeight:700, color: famOpen ? cfg.color : '#e6edf3' }}>
+                    {famille}
+                  </span>
+                </div>
+                <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                  <span style={{ fontSize:10, color:'#484f58' }}>{famTickers.length}</span>
+                  <span style={{ fontSize:11, color:'#484f58' }}>{famOpen ? '▲' : '▼'}</span>
+                </div>
+              </button>
+
+              {famOpen && cfg.secteurs.map(secteur => {
+                const secTickers = famTickers.filter(t => t.secteur === secteur);
+                if (secTickers.length === 0) return null;
+                const secOpen = openSecteur === secteur;
+
+                return (
+                  <div key={secteur} style={{ borderTop:'1px solid #161b22' }}>
+                    <button onClick={() => setOpenSecteur(secOpen ? null : secteur)}
+                      style={{
+                        width:'100%', display:'flex', alignItems:'center',
+                        justifyContent:'space-between', padding:'9px 14px',
+                        background: secOpen ? '#161b22' : 'transparent',
+                        border:'none', cursor:'pointer',
+                      }}>
+                      <span style={{ fontSize:11, fontWeight:600, color:'#8b949e' }}>{secteur}</span>
+                      <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                        <span style={{ fontSize:10, color:'#484f58' }}>{secTickers.length}</span>
+                        <span style={{ fontSize:10, color:'#484f58' }}>{secOpen ? '▲' : '▼'}</span>
+                      </div>
+                    </button>
+
+                    {secOpen && (
+                      <div style={{ background:'#080d13' }}>
+                        {secTickers.map(t => (
+                          <TickerRow key={t.ticker} ticker={t} snapshot={snapshotMap[t.ticker]} period={period} />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
+// ─── PERFORMANCE VIEW ─────────────────────────────────────────────────────────
+function PerformanceView({ tickers, snapshots }) {
+  const [period, setPeriod] = useState('1J');
+  const [groupBy, setGroupBy] = useState('global');
+
+  const snapshotMap = {};
+  (snapshots || []).forEach(s => { snapshotMap[s.ticker] = s; });
+
+  const sorted = [...tickers]
+    .map(t => ({ ...t, change: snapshotMap[t.ticker]?.[PERIOD_KEY[period]] ?? null }))
+    .sort((a, b) => {
+      if (a.change === null && b.change === null) return 0;
+      if (a.change === null) return 1;
+      if (b.change === null) return -1;
+      return b.change - a.change;
+    });
+
+  function PerfRow({ t, rank }) {
+    return (
+      <div style={{
+        display:'flex', alignItems:'center', gap:8,
+        padding:'9px 12px', borderBottom:'1px solid #161b22',
+      }}>
+        <span style={{ fontSize:10, color:'#484f58', width:18, textAlign:'center', flexShrink:0 }}>
+          {rank}
+        </span>
+        <div style={{ width:3, height:30, borderRadius:2, flexShrink:0,
+                       background: TYPE_COLOR[t.type] || '#484f58' }} />
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{ fontSize:11, fontWeight:700, color:'#e6edf3' }}>{t.ticker}</div>
+          <div style={{ fontSize:10, color:'#484f58', overflow:'hidden',
+                         textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:110 }}>
+            {t.name}
+          </div>
+        </div>
+        <span style={{ fontSize:9, color:'#484f58', background:'#161b22',
+                        borderRadius:4, padding:'2px 5px', maxWidth:70,
+                        overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+          {t.secteur.split(' ')[0]}
+        </span>
+        <span style={{ fontSize:12, fontWeight:700, color: changeColor(t.change),
+                        minWidth:65, textAlign:'right' }}>
+          {fmtChange(t.change)}
+        </span>
+        <a href={ibLink(t.ticker)} target="_blank" rel="noopener noreferrer"
+          style={{ fontSize:9, color:'#484f58', background:'#161b22', borderRadius:4,
+                    padding:'2px 5px', textDecoration:'none', fontWeight:600, flexShrink:0 }}>
+          IB →
+        </a>
+      </div>
+    );
+  }
+
+  function renderList(list) {
+    return (
+      <div style={{ border:'1px solid #21262d', borderRadius:8, overflow:'hidden' }}>
+        {list.map((t, i) => <PerfRow key={t.ticker} t={t} rank={i + 1} />)}
+      </div>
+    );
+  }
+
+  function renderByGroupe(getFn, groups) {
+    return groups.map(group => {
+      const list = sorted.filter(t => getFn(t) === group);
+      if (list.length === 0) return null;
+      const cfg = FAMILLES[group];
+      return (
+        <div key={group} style={{ marginBottom:14 }}>
+          <div style={{ fontSize:11, fontWeight:700, color: cfg?.color || '#8b949e',
+                         marginBottom:6, display:'flex', alignItems:'center', gap:6 }}>
+            {cfg?.icon} {group}
+            <span style={{ fontSize:10, color:'#484f58', fontWeight:400 }}>· {list.length}</span>
+          </div>
+          {renderList(list)}
+        </div>
+      );
+    });
+  }
+
+  return (
+    <div>
+      <div style={{ display:'flex', gap:6, marginBottom:10 }}>
+        {PERIODS.map(p => (
+          <button key={p} onClick={() => setPeriod(p)} style={{
+            padding:'3px 10px', borderRadius:6, border:'none',
+            background: period === p ? '#f0b429' : '#161b22',
+            color: period === p ? '#0d1117' : '#8b949e',
+            fontSize:11, fontWeight:600, cursor:'pointer',
+          }}>{p}</button>
+        ))}
+      </div>
+
+      <div style={{ display:'flex', gap:6, marginBottom:14,
+                    background:'#0d1117', padding:4, borderRadius:8 }}>
+        {[{id:'global',label:'🌍 Global'},{id:'famille',label:'🗂 Famille'},{id:'secteur',label:'📂 Secteur'}].map(g => (
+          <button key={g.id} onClick={() => setGroupBy(g.id)} style={{
+            flex:1, padding:'6px 4px', borderRadius:6, border:'none',
+            background: groupBy === g.id ? '#f0b429' : 'transparent',
+            color: groupBy === g.id ? '#0d1117' : '#8b949e',
+            fontSize:11, fontWeight:600, cursor:'pointer',
+          }}>{g.label}</button>
+        ))}
+      </div>
+
+      {groupBy === 'global' && renderList(sorted)}
+      {groupBy === 'famille' && renderByGroupe(t => getFamilleForSecteur(t.secteur), Object.keys(FAMILLES))}
+      {groupBy === 'secteur' && renderByGroupe(t => t.secteur, [...new Set(tickers.map(t => t.secteur))].sort())}
+
+      {snapshots?.length > 0 && (
+        <div style={{ fontSize:10, color:'#484f58', textAlign:'center', marginTop:12 }}>
+          Snapshot · {new Date(snapshots[0]?.snapshot_time).toLocaleString('fr-FR')}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── CLASSIFIER VIEW ──────────────────────────────────────────────────────────
+function ClassifyView() {
+  const [mode, setMode] = useState('single');
+  const [name, setName] = useState('');
   const [ticker, setTicker] = useState('');
   const [result, setResult] = useState(null);
-
-  // Batch
-  const [batchText,    setBatchText]    = useState('');
+  const [batchText, setBatchText] = useState('');
   const [batchResults, setBatchResults] = useState(null);
-  const [saved,        setSaved]        = useState(false);
-  const [loading,      setLoading]      = useState(false);
-  const [error,        setError]        = useState(null);
+  const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
-  // ── Single ──
   async function classify() {
     if (!name || !ticker) return;
     setLoading(true); setResult(null); setError(null);
     try {
       const data = await classifyTicker(name, ticker.toUpperCase());
       setResult(data);
-      // Sauvegarde automatique en Supabase
-      if (data && !data.error) {
-        await saveTickersToSupabase([data]);
-      }
+      if (data && !data.error) await saveTickersToSupabase([data]);
     } catch (e) { setError(e.message); }
     setLoading(false);
   }
 
-  // ── Batch ──
   function parseLines(text) {
     return text.split('\n').map(l => l.trim()).filter(Boolean).map(line => {
-      const dashMatch  = line.match(/^([A-Z0-9.]+)\s*[-–]\s*(.+)$/);
-      const parenMatch = line.match(/^(.+?)\s*\(([A-Z0-9.]+)\)$/);
-      const spaceMatch = line.match(/^([A-Z0-9.]{1,6})\s+(.+)$/);
-      if (dashMatch)  return { ticker: dashMatch[1].trim(),  name: dashMatch[2].trim() };
-      if (parenMatch) return { ticker: parenMatch[2].trim(), name: parenMatch[1].trim() };
-      if (spaceMatch) return { ticker: spaceMatch[1].trim(), name: spaceMatch[2].trim() };
+      const d = line.match(/^([A-Z0-9.]+)\s*[-–]\s*(.+)$/);
+      const p = line.match(/^(.+?)\s*\(([A-Z0-9.]+)\)$/);
+      const s = line.match(/^([A-Z0-9.]{1,6})\s+(.+)$/);
+      if (d) return { ticker: d[1].trim(), name: d[2].trim() };
+      if (p) return { ticker: p[2].trim(), name: p[1].trim() };
+      if (s) return { ticker: s[1].trim(), name: s[2].trim() };
       return { ticker: line, name: line };
     });
   }
@@ -129,58 +392,46 @@ function ClassifyView() {
     if (!items.length) return;
     setLoading(true); setBatchResults(null); setSaved(false); setError(null);
     try {
-      const data = await classifyBatch(items);
-      setBatchResults(data);
-      // Sauvegarde automatique en Supabase
-      if (data.length > 0) {
-        await saveTickersToSupabase(data);
-        setSaved(true);
+      let allResults = [];
+      const chunks = [];
+      for (let i = 0; i < items.length; i += 10) chunks.push(items.slice(i, i + 10));
+      for (let i = 0; i < chunks.length; i++) {
+        setError(`⏳ ${i + 1}/${chunks.length}...`);
+        const res = await classifyBatch(chunks[i]);
+        if (res.length > 0) { await saveTickersToSupabase(res); allResults = [...allResults, ...res]; }
       }
+      setBatchResults(allResults); setSaved(true); setError(null);
     } catch (e) { setError(e.message); }
     setLoading(false);
   }
 
-  const typeColor = {
-    'EARNINGS PLAY': '#3fb950',
-    'TITRE DE FOND': '#e3b341',
-    'SPÉCULATIF':    '#f85149',
-  };
-
-  const lineCount = batchText.split('\n').filter(l => l.trim()).length;
-
   return (
     <div>
-      {/* Mode selector */}
-      <div style={{ display:'flex', gap:'8px', marginBottom:'16px',
-                    background:'#0d1117', padding:'4px', borderRadius:'8px' }}>
+      <div style={{ display:'flex', gap:8, marginBottom:16,
+                    background:'#0d1117', padding:4, borderRadius:8 }}>
         {['single','batch'].map(m => (
           <button key={m} onClick={() => setMode(m)} style={{
-            flex:1, padding:'7px 4px', borderRadius:'6px', border:'none',
-            cursor:'pointer', fontSize:'11px', fontWeight:600,
+            flex:1, padding:'7px 4px', borderRadius:6, border:'none', cursor:'pointer',
+            fontSize:11, fontWeight:600,
             background: mode === m ? '#f0b429' : 'transparent',
-            color:       mode === m ? '#0d1117' : '#8b949e',
+            color: mode === m ? '#0d1117' : '#8b949e',
           }}>
-            {m === 'single' ? '⚡ Un ticker' : '📋 Batch (liste)'}
+            {m === 'single' ? '⚡ Un ticker' : '📋 Batch'}
           </button>
         ))}
       </div>
 
-      {/* ── SINGLE ── */}
       {mode === 'single' && (
         <div>
-          <p style={{ fontSize:'11px', color:'#8b949e', marginBottom:'16px', lineHeight:'1.6' }}>
-            Classe un titre et l'ajoute automatiquement au portfolio Supabase.
-          </p>
-          <div style={{ display:'flex', flexDirection:'column', gap:'10px', marginBottom:'16px' }}>
+          <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:14 }}>
             <input value={name} onChange={e => setName(e.target.value)}
               placeholder="Nom complet (ex: Broadcom)" style={inputStyle} />
             <input value={ticker} onChange={e => setTicker(e.target.value.toUpperCase())}
               placeholder="Ticker (ex: AVGO)" style={inputStyle} />
             <button onClick={classify} disabled={loading || !name || !ticker} style={{
               background: loading||!name||!ticker ? '#161b22' : '#f0b429',
-              color:       loading||!name||!ticker ? '#484f58' : '#0d1117',
-              border:'none', borderRadius:'8px', padding:'10px',
-              fontSize:'13px', fontWeight:700,
+              color: loading||!name||!ticker ? '#484f58' : '#0d1117',
+              border:'none', borderRadius:8, padding:10, fontSize:13, fontWeight:700,
               cursor: loading||!name||!ticker ? 'not-allowed' : 'pointer',
             }}>
               {loading ? '⏳ Classification...' : '🤖 Classifier + Sauvegarder'}
@@ -188,96 +439,58 @@ function ClassifyView() {
           </div>
           {result && !result.error && (
             <div style={{ background:'#0d1117', border:'1px solid #21262d',
-                          borderRadius:'10px', padding:'14px',
-                          display:'flex', flexDirection:'column', gap:'8px' }}>
-              <div style={{ fontSize:'11px', color:'#3fb950', marginBottom:'4px' }}>
-                ✓ Ajouté au portfolio
-              </div>
-              <Row label="Secteur" value={result.secteur}          color="#58a6ff" />
-              <Row label="Driver"  value={result.driver_principal} color="#e6edf3" />
-              <Row label="Bourse"  value={result.bourse}           color="#8b949e" />
-              <Row label="Type"    value={result.type}             color={typeColor[result.type]} />
-              <div style={{ display:'flex', gap:'8px', marginTop:'4px', flexWrap:'wrap' }}>
-                <Tag label="Earnings play"          active={result.earnings_play} />
-                <Tag label="Already priced in risk" active={result.already_priced_in_risk} color="#f85149" />
-              </div>
+                          borderRadius:10, padding:14, display:'flex', flexDirection:'column', gap:8 }}>
+              <div style={{ fontSize:11, color:'#3fb950', marginBottom:2 }}>✓ Ajouté</div>
+              {[['Secteur',result.secteur,'#58a6ff'],['Driver',result.driver_principal,'#e6edf3'],
+                ['Bourse',result.bourse,'#8b949e'],['Type',result.type,TYPE_COLOR[result.type]]].map(([l,v,c]) => (
+                <div key={l} style={{ display:'flex', justifyContent:'space-between' }}>
+                  <span style={{ fontSize:11, color:'#484f58' }}>{l}</span>
+                  <span style={{ fontSize:11, fontWeight:600, color:c }}>{v}</span>
+                </div>
+              ))}
             </div>
           )}
-          {error && <div style={{ color:'#f85149', fontSize:'12px' }}>❌ {error}</div>}
+          {error && <div style={{ color:'#f85149', fontSize:12 }}>❌ {error}</div>}
         </div>
       )}
 
-      {/* ── BATCH ── */}
       {mode === 'batch' && (
         <div>
-          <p style={{ fontSize:'11px', color:'#8b949e', marginBottom:'12px', lineHeight:'1.6' }}>
-            Colle ta liste — une ligne par ticker. Claude classifie tout et sauvegarde directement dans Supabase.
-          </p>
-          <div style={{ background:'#0d1117', border:'1px solid #21262d',
-                        borderRadius:'8px', padding:'10px 14px', marginBottom:'12px' }}>
-            {['AVGO - Broadcom', 'Broadcom (AVGO)', 'AVGO Broadcom'].map(ex => (
-              <div key={ex} style={{ fontSize:'10px', color:'#484f58', fontFamily:'monospace' }}>
-                {ex}
-              </div>
-            ))}
-          </div>
-          <textarea
-            value={batchText}
-            onChange={e => setBatchText(e.target.value)}
-            placeholder={'AVGO - Broadcom\nSNPS - Synopsys\nORCL - Oracle\n...'}
-            rows={10}
-            style={{ ...inputStyle, resize:'vertical', fontFamily:'monospace',
-                     fontSize:'12px', lineHeight:'1.6' }}
-          />
+          <textarea value={batchText} onChange={e => setBatchText(e.target.value)}
+            placeholder={'AVGO - Broadcom\nSNPS - Synopsys\nORCL - Oracle'} rows={10}
+            style={{ ...inputStyle, resize:'vertical', fontFamily:'monospace', fontSize:12, lineHeight:1.6 }} />
           <button onClick={classifyAll} disabled={loading || !batchText.trim()} style={{
-            width:'100%', marginTop:'10px',
+            width:'100%', marginTop:10,
             background: loading || !batchText.trim() ? '#161b22' : '#f0b429',
-            color:       loading || !batchText.trim() ? '#484f58' : '#0d1117',
-            border:'none', borderRadius:'8px', padding:'10px',
-            fontSize:'13px', fontWeight:700,
+            color: loading || !batchText.trim() ? '#484f58' : '#0d1117',
+            border:'none', borderRadius:8, padding:10, fontSize:13, fontWeight:700,
             cursor: loading || !batchText.trim() ? 'not-allowed' : 'pointer',
           }}>
-            {loading
-              ? '⏳ Classification + sauvegarde...'
-              : `🤖 Classifier ${lineCount} ticker(s) → Supabase`}
+            {loading ? error || '⏳ En cours...' : `🤖 Classifier ${batchText.split('\n').filter(l=>l.trim()).length} ticker(s)`}
           </button>
-
-          {saved && (
-            <div style={{ marginTop:'12px', fontSize:'11px', color:'#3fb950' }}>
-              ✓ {batchResults?.length} ticker(s) classifié(s) et sauvegardés dans Supabase
-            </div>
-          )}
-          {error && <div style={{ color:'#f85149', fontSize:'12px', marginTop:'8px' }}>❌ {error}</div>}
-
-          {/* Résultats groupés par secteur */}
-          {batchResults && batchResults.length > 0 && (
-            <div style={{ marginTop:'16px', display:'flex', flexDirection:'column', gap:'8px' }}>
-              {Object.entries(
-                batchResults.reduce((acc, r) => {
-                  const s = r.secteur || 'AUTRE';
-                  if (!acc[s]) acc[s] = [];
-                  acc[s].push(r);
-                  return acc;
-                }, {})
-              ).map(([secteur, tickers]) => (
-                <div key={secteur} style={{ background:'#0d1117', border:'1px solid #21262d',
-                                            borderRadius:'8px', overflow:'hidden' }}>
-                  <div style={{ padding:'8px 14px', borderBottom:'1px solid #161b22',
-                                display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                    <span style={{ fontSize:'11px', fontWeight:700, color:'#58a6ff' }}>{secteur}</span>
-                    <span style={{ fontSize:'10px', color:'#484f58' }}>{tickers.length} titre(s)</span>
+          {saved && <div style={{ marginTop:10, fontSize:11, color:'#3fb950' }}>✓ {batchResults?.length} sauvegardés</div>}
+          {batchResults && (
+            <div style={{ marginTop:14, display:'flex', flexDirection:'column', gap:6 }}>
+              {Object.entries(batchResults.reduce((acc, r) => {
+                const s = r.secteur || 'AUTRE';
+                if (!acc[s]) acc[s] = [];
+                acc[s].push(r);
+                return acc;
+              }, {})).map(([secteur, tickers]) => (
+                <div key={secteur} style={{ background:'#0d1117', border:'1px solid #21262d', borderRadius:8, overflow:'hidden' }}>
+                  <div style={{ padding:'7px 12px', borderBottom:'1px solid #161b22',
+                                display:'flex', justifyContent:'space-between' }}>
+                    <span style={{ fontSize:11, fontWeight:700, color:'#58a6ff' }}>{secteur}</span>
+                    <span style={{ fontSize:10, color:'#484f58' }}>{tickers.length}</span>
                   </div>
-                  <div style={{ padding:'10px 14px', display:'flex', flexDirection:'column', gap:'6px' }}>
+                  <div style={{ padding:'8px 12px', display:'flex', flexDirection:'column', gap:4 }}>
                     {tickers.map(t => (
-                      <div key={t.ticker} style={{ display:'flex', justifyContent:'space-between',
-                                                    alignItems:'center' }}>
+                      <div key={t.ticker} style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                         <div>
-                          <span style={{ fontSize:'12px', fontWeight:700,
-                                         color:'#e6edf3', marginRight:'8px' }}>{t.ticker}</span>
-                          <span style={{ fontSize:'11px', color:'#8b949e' }}>{t.name}</span>
+                          <span style={{ fontSize:11, fontWeight:700, color:'#e6edf3', marginRight:8 }}>{t.ticker}</span>
+                          <span style={{ fontSize:10, color:'#8b949e' }}>{t.name}</span>
                         </div>
-                        <span style={{ fontSize:'10px', fontWeight:600,
-                                       color: typeColor[t.type] || '#8b949e' }}>{t.type}</span>
+                        <span style={{ fontSize:9, fontWeight:600, color: TYPE_COLOR[t.type] || '#8b949e' }}>{t.type}</span>
                       </div>
                     ))}
                   </div>
@@ -291,63 +504,69 @@ function ClassifyView() {
   );
 }
 
-// ─── COMPOSANTS UTILITAIRES ───────────────────────────────────────────────────
-function Row({ label, value, color }) {
-  return (
-    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-      <span style={{ fontSize:'11px', color:'#484f58' }}>{label}</span>
-      <span style={{ fontSize:'12px', fontWeight:600, color }}>{value}</span>
-    </div>
-  );
-}
-
-function Tag({ label, active, color='#3fb950' }) {
-  return (
-    <span style={{ fontSize:'10px', fontWeight:600,
-                   color: active ? color : '#484f58',
-                   background: active ? `${color}18` : '#161b22',
-                   borderRadius:'4px', padding:'2px 8px' }}>
-      {active ? '✓' : '✗'} {label}
-    </span>
-  );
-}
-
 // ─── EXPORT PRINCIPAL ─────────────────────────────────────────────────────────
 export default function MomentumModule() {
   const [tab, setTab] = useState('portfolio');
+  const [tickers, setTickers] = useState([]);
+  const [snapshots, setSnapshots] = useState([]);
+  const [period, setPeriod] = useState('1J');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const [tRes, sRes] = await Promise.all([
+          fetch('/api/portfolio'),
+          fetch('/api/portfolio/latest-snapshot'),
+        ]);
+        const tData = await tRes.json();
+        const sData = await sRes.json();
+        setTickers(tData.raw || []);
+        setSnapshots(sData.data || []);
+      } catch (e) { console.error(e); }
+      setLoading(false);
+    }
+    load();
+  }, []);
+
   const tabs = [
-    { id:'portfolio', label:'📊 Portefeuille' },
-    { id:'classify',  label:'🤖 Classifier'   },
+    { id:'portfolio',   label:'📊 Portfolio' },
+    { id:'performance', label:'📈 Performance' },
+    { id:'classify',    label:'🤖 Classifier' },
   ];
+
   return (
     <div>
-      <div style={{ display:'flex', alignItems:'center', gap:'12px', marginBottom:'20px' }}>
-        <span style={{ fontSize:'22px' }}>⚡</span>
-        <h2 style={{ fontSize:'20px', fontWeight:800, color:'#e6edf3',
+      <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:18 }}>
+        <span style={{ fontSize:22 }}>⚡</span>
+        <h2 style={{ fontSize:20, fontWeight:800, color:'#e6edf3',
                      fontFamily:'Syne, sans-serif', margin:0 }}>Momentum</h2>
+        {loading && <span style={{ fontSize:10, color:'#484f58', marginLeft:'auto' }}>Chargement...</span>}
       </div>
-      <div style={{ display:'flex', gap:'8px', marginBottom:'24px',
-                    background:'#0d1117', padding:'4px', borderRadius:'10px' }}>
+
+      <div style={{ display:'flex', gap:6, marginBottom:18,
+                    background:'#0d1117', padding:4, borderRadius:10 }}>
         {tabs.map(t => (
           <button key={t.id} onClick={() => setTab(t.id)} style={{
-            flex:1, padding:'8px 4px', borderRadius:'8px', border:'none',
-            cursor:'pointer', fontSize:'12px', fontWeight:600,
+            flex:1, padding:'8px 4px', borderRadius:8, border:'none', cursor:'pointer',
+            fontSize:11, fontWeight:600, transition:'all .15s',
             background: tab === t.id ? '#f0b429' : 'transparent',
-            color:       tab === t.id ? '#0d1117' : '#8b949e',
-            transition:'all .15s',
-          }}>
-            {t.label}
-          </button>
+            color: tab === t.id ? '#0d1117' : '#8b949e',
+          }}>{t.label}</button>
         ))}
       </div>
-      {tab === 'portfolio' && <PortfolioView />}
-      {tab === 'classify'  && <ClassifyView />}
+
+      {tab === 'portfolio' && (
+        <PortfolioView tickers={tickers} snapshots={snapshots} period={period} setPeriod={setPeriod} />
+      )}
+      {tab === 'performance' && <PerformanceView tickers={tickers} snapshots={snapshots} />}
+      {tab === 'classify' && <ClassifyView />}
     </div>
   );
 }
 
 const inputStyle = {
   width:'100%', background:'#0d1117', border:'1px solid #21262d',
-  borderRadius:'8px', padding:'10px 14px', color:'#e6edf3',
-  fontSize:'13px', outline:'none', boxSizing:'border-box',
+  borderRadius:8, padding:'10px 14px', color:'#e6edf3',
+  fontSize:13, outline:'none', boxSizing:'border-box',
 };
