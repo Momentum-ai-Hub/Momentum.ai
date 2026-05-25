@@ -29,13 +29,20 @@ export async function getEarningsToday() {
     revenueEstimate: e.revenueEstimate,
   }));
 }
-// ─── FMP : Historique earnings (4 derniers trimestres) ───────────────────────
+// ─── Finnhub : Historique earnings (4 derniers trimestres) ───────────────────────
 export async function getEarningsHistory(ticker) {
-  const url = `https://financialmodelingprep.com/api/v3/earnings-surprises/${ticker}?apikey=${FMP_KEY}`;
+  const url = `https://finnhub.io/api/v1/stock/earnings?symbol=${ticker}&token=${FINNHUB_KEY}`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error('FMP earnings history error');
+  if (!res.ok) throw new Error(`Finnhub history ${res.status}`);
   const data = await res.json();
-  return data.slice(0, 4);
+  // Normaliser au même format qu'avant
+  return data.slice(0, 4).map(e => ({
+    date: e.period,
+    actualEarningResult: e.actual,
+    estimatedEarning: e.estimate,
+    surprise: e.surprise,
+    surprisePercent: e.surprisePercent,
+  }));
 }
 
 // ─── FINNHUB : Quote (prix actuel) ───────────────────────────────────────────
