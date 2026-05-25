@@ -30,16 +30,22 @@ export default function EarningsModule() {
   const [manualTicker, setManualTicker] = useState('');
 
   async function loadEarnings() {
-    setLoading(true);
-    setError('');
-    try {
-      const data = await getEarningsToday();
-      setEarningsList(data.slice(0, 30));
-    } catch (e) {
-      setError('Erreur chargement earnings : ' + e.message);
+  setLoading(true);
+  setError('');
+  try {
+    const data = await getEarningsToday();
+    const list = data.slice(0, 15);
+    setEarningsList(list);
+    // Auto-analyse séquentielle pour ne pas flooder les APIs
+    for (const item of list) {
+      runAnalysis(item.symbol);
+      await new Promise(r => setTimeout(r, 800));
     }
-    setLoading(false);
+  } catch (e) {
+    setError('Erreur chargement earnings : ' + e.message);
   }
+  setLoading(false);
+}
 
   async function runAnalysis(ticker) {
     setAnalyzing(prev => ({ ...prev, [ticker]: true }));
