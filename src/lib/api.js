@@ -273,11 +273,12 @@ const userMessage = "Analyse earnings pour " + ticker + ".\n" +
   "Put/Call ratio : " + (putCall !== null ? putCall.toFixed(2) : "non disponible") + "\n" +
   "Short interest : " + (shortInterest !== null ? shortInterest : "non disponible");
 
-  const response = await fetch('/api/claude', {
+ const body = {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ system: SYSTEM_PROMPT, messages: [{ role: 'user', content: userMessage }], useWebSearch: useWebSearch }),
-    
+  };
+  const response = await fetch('/api/claude', body);
   if (!response.ok) throw new Error('Claude API error');
   const data = await response.json();
   return data.content?.[0]?.text ?? 'Erreur analyse';
