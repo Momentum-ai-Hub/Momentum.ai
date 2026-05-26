@@ -10,24 +10,40 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
-// ─── Finnhub : Earnings du jour ───────────────────────────────────────────────────
+// ─── Earnings du jour ───────────────────────────────────────────────────
 export async function getEarningsToday() {
-  const today = new Date().toISOString().split('T')[0];
-  const url = `https://finnhub.io/api/v1/calendar/earnings?from=${today}&to=${today}&token=${FINNHUB_KEY}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Finnhub earnings ${res.status}`);
+  const today = new Date().toLocaleDateString('fr-FR', {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+  });
+
+  const prompt = `Nous sommes le ${today}. 
+Recherche les publications d'earnings d'aujourd'hui sur NYSE, NASDAQ, XETRA, Euronext Paris, Euronext Amsterdam, LSE, SIX Swiss, Borsa Milano, BME Madrid.
+Retourne UNIQUEMENT un tableau JSON valide, sans texte autour, sans backticks.
+Format exact : [{"symbol":"TICKER","name":"Nom complet","time":"BMO","exchange":"NYSE"}]
+- time : BMO (avant ouverture) ou AMC (après clôture)
+- exchange : NYSE, NASDAQ, XETRA, EURONEXT, LSE, SIX, BORSA, BME
+- Inclure uniquement les publications significatives (exclure micro-caps sans couverture)
+- Maximum 20 résultats, priorité aux large/mid caps connues
+Retourne uniquement le JSON.`;
+
+  const res = await fetch('/api/claude', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      messages: [{ role: 'user', content: prompt }],
+      useWebSearch: true,
+    }),
+  });
+
+  if (!res.ok) throw new Error(`Earnings fetch error ${res.status}`);
   const data = await res.json();
-  
-  // Finnhub retourne { earningsCalendar: [...] }
-  const list = data.earningsCalendar ?? [];
-  
-  // Normaliser le format pour correspondre à ce qu'attend EarningsModule
-  return list.map(e => ({
-    symbol: e.symbol,
-    time: e.hour === 'bmo' ? 'BMO' : e.hour === 'amc' ? 'AMC' : e.hour ?? '?',
-    epsEstimate: e.epsEstimate,
-    revenueEstimate: e.revenueEstimate,
-  }));
+  const text = data.content?.[0]?.text ?? '[]';
+
+  try {
+    return JSON.parse(text.replace(/```json|```/g, '').trim());
+  } catch {
+    throw new Error('Parsing earnings échoué : ' + text.slice(0, 100));
+  }
 }
 // ─── Finnhub : Historique earnings (4 derniers trimestres) ───────────────────────
 export async function getEarningsHistory(ticker) {
