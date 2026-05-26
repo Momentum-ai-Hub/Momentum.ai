@@ -16,15 +16,16 @@ export async function getEarningsToday() {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
   });
 
-  const prompt = `Nous sommes le ${today}. 
-Recherche les publications d'earnings d'aujourd'hui sur NYSE, NASDAQ, XETRA, Euronext Paris, Euronext Amsterdam, LSE, SIX Swiss, Borsa Milano, BME Madrid.
-Retourne UNIQUEMENT un tableau JSON valide, sans texte autour, sans backticks.
-Format exact : [{"symbol":"TICKER","name":"Nom complet","time":"BMO","exchange":"NYSE"}]
-- time : BMO (avant ouverture) ou AMC (après clôture)
-- exchange : NYSE, NASDAQ, XETRA, EURONEXT, LSE, SIX, BORSA, BME
-- Inclure uniquement les publications significatives (exclure micro-caps sans couverture)
-- Maximum 20 résultats, priorité aux large/mid caps connues
-Retourne uniquement le JSON.`;
+  const prompt = `Today is ${new Date().toISOString().split('T')[0]}.
+Search for earnings releases TODAY on NYSE, NASDAQ, XETRA, Euronext, LSE.
+You MUST respond with ONLY a valid JSON array. No text before, no text after, no explanation.
+Example of the ONLY acceptable response format:
+[{"symbol":"NVDA","name":"NVIDIA Corp","time":"AMC","exchange":"NASDAQ"},{"symbol":"CRM","name":"Salesforce","time":"AMC","exchange":"NYSE"}]
+Rules:
+- Only large and mid-cap companies with analyst coverage
+- Maximum 20 results
+- time must be exactly "BMO" or "AMC"
+- YOUR ENTIRE RESPONSE MUST BE ONLY THE JSON ARRAY, NOTHING ELSE`;
 
   const res = await fetch('/api/claude', {
     method: 'POST',
