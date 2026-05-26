@@ -13,20 +13,26 @@ const supabase = createClient(
 // ─── Earnings du jour ───────────────────────────────────────────────────
 export async function getEarningsToday() {
   const date = new Date().toISOString().split('T')[0];
-  
   const res = await fetch('/api/claude', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      messages: [{ role: 'user', content: `Search earnings releases for ${date} on NYSE NASDAQ XETRA Euronext LSE. List only large and mid-cap tickers. Respond with ONLY a comma-separated list of ticker symbols, nothing else. Example: NVDA,CRM,COST,SAP` }],
+      messages: [{ role: 'user', content: 'Search earnings releases for ' + date + ' on NYSE NASDAQ XETRA Euronext LSE. List only large and mid-cap tickers. Respond with ONLY a comma-separated list of ticker symbols, nothing else. Example: NVDA,CRM,COST,SAP' }],
       useWebSearch: true,
     }),
   });
-
-  if (!res.ok) throw new Error(`Earnings fetch error ${res.status}`);
+  if (!res.ok) throw new Error('Earnings fetch error ' + res.status);
   const data = await res.json();
-  const text = data.content?.[0]?.text ?? '';
-  
+  const text = data.content[0].text || '';
+  const tickers = text
+    .replace(/[^A-Z0-9,\n\s]/g, '')
+    .split(/[,\n\s]+/)
+    .map(function(t) { return t.trim(); })
+    .filter(function(t) { return t.length >= 1 && t.length <= 6 && /^[A-Z]/.test(t); })
+    .slice(0, 20);
+  if (tickers.length === 0) throw new Error('Aucun ticker detecte');
+  return tickers.map(function(symbol) { return { symbol: symbol, time: '?', exchange: '' }; });
+}
   // Parse liste de tickers séparés par virgules ou espaces ou sauts de ligne
   const tickers = text
     .replace(/[^A-Z0-9,\n\s.]/g, '')
