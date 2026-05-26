@@ -279,28 +279,6 @@ export default function EarningsModule() {
         </div>
       )}
 
-      {insufficientTickers.length > 0 && (
-        <div style={{ marginTop: '24px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', paddingBottom: '6px', borderBottom: '1px solid #21262d' }}>
-            <span style={{ fontSize: '12px' }}>⚠️</span>
-            <span style={{ fontSize: '11px', fontWeight: 700, color: '#484f58', letterSpacing: '1px' }}>DONNÉES INSUFFISANTES</span>
-            <span style={{ fontSize: '10px', color: '#484f58' }}>({insufficientTickers.length})</span>
-          </div>
-          <p style={{ fontSize: '11px', color: '#484f58', marginBottom: '10px', lineHeight: '1.5' }}>
-            Données limitées. Demande une analyse via web search si le titre t'intéresse.
-          </p>
-
-          {insufficientTickers.map(function(item) {
-            var ticker   = item.symbol;
-            var busy     = analyzing[ticker];
-            var result   = analyses[ticker];
-            var verdict  = result ? detectVerdict(result) : null;
-            var vs       = verdict ? VERDICT_STYLE[verdict] : null;
-            var profile  = profiles[ticker];
-            var name     = profile && profile.name ? profile.name : '';
-            var exchange = profile && profile.exchange ? profile.exchange : '';
-            var isOpen   = openTicker === ticker;
-
             return (
               <div key={ticker} style={{ background: '#080c10', border: '1px solid ' + (result && vs ? vs.border + '44' : '#1e2530'), borderRadius: '10px', marginBottom: '6px', overflow: 'hidden', opacity: busy ? 0.6 : 1 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px' }}>
