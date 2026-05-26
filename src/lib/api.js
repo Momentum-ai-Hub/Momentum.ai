@@ -50,7 +50,7 @@ export async function getEarningsToday() {
   }));
 }
 
-  if (!res.ok) throw new Error(`Earnings fetch error ${res.status}`);
+  if (!res.ok) throw new Error(`Earnings fetch error ' + res.status);
   const data = await res.json();
   const text = data.content?.[0]?.text ?? '[]';
 
