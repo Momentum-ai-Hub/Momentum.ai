@@ -28,7 +28,10 @@ export async function getEarningsToday() {
     .replace(/[^A-Z0-9,\n\s]/g, '')
     .split(/[,\n\s]+/)
     .map(function(t) { return t.trim(); })
-    .filter(function(t) { return t.length >= 1 && t.length <= 6 && /^[A-Z]/.test(t); })
+  .filter(function(t) {
+  var exclude = ['NYSE','NASDAQ','XETRA','EURONEXT','LSE','BME','SIX','BORSA','AMC','BMO','THE','ETF','AND','FOR'];
+  return t.length >= 2 && t.length <= 6 && /^[A-Z]/.test(t) && exclude.indexOf(t) === -1;
+})
     .slice(0, 20);
   if (tickers.length === 0) throw new Error('Aucun ticker detecte');
   return tickers.map(function(symbol) { return { symbol: symbol, time: '?', exchange: '' }; });
