@@ -276,7 +276,7 @@ const userMessage = "Analyse earnings pour " + ticker + ".\n" +
   const response = await fetch('/api/claude', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-   body: JSON.stringify({ system: SYSTEM_PROMPT, messages: [{ role: 'user', content: userMessage }], useWebSearch }),
+    body: JSON.stringify({ system: SYSTEM_PROMPT, messages: [{ role: 'user', content: userMessage }], useWebSearch: useWebSearch }),
     
   if (!response.ok) throw new Error('Claude API error');
   const data = await response.json();
