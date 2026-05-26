@@ -45,6 +45,21 @@ export async function getEarningsHistory(ticker) {
   }));
 }
 
+// ─── Profile Earnings ───────────────────────────────────────────
+export async function getStockProfile(ticker) {
+  const url = `https://finnhub.io/api/v1/stock/profile2?symbol=${ticker}&token=${FINNHUB_KEY}`;
+  const res = await fetch(url);
+  if (!res.ok) return null;
+  const data = await res.json();
+  if (!data.name) return null;
+  return {
+    name: data.name,
+    sector: data.finnhubIndustry,
+    marketCap: data.marketCapitalization,
+    exchange: data.exchange,
+  };
+}
+
 // ─── FINNHUB : Quote (prix actuel) ───────────────────────────────────────────
 export async function getQuote(ticker) {
   const url = `https://finnhub.io/api/v1/quote?symbol=${ticker}&token=${FINNHUB_KEY}`;
