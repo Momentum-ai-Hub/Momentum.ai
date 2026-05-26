@@ -127,8 +127,8 @@ export async function getCommodityChange(symbol, days = 5) {
 }
 
 // ─── ANTHROPIC CLAUDE : Analyse earnings ─────────────────────────────────────
-export async function analyzeEarnings(ticker, earningsData, history, perf30d, putCall, shortInterest) {
-
+export async function analyzeEarnings(ticker, earningsData, history, perf30d, putCall, shortInterest, profile, useWebSearch = false) {
+  
  const SYSTEM_PROMPT = "Tu es Momentum AI — analyste quantitatif expert en trading d'earnings et surveillance de portefeuille.\n\n" +
 "Tu combines 6 fonctions :\n" +
 "1. Analyse des publications d'earnings (earnings play)\n" +
@@ -266,6 +266,7 @@ export async function analyzeEarnings(ticker, earningsData, history, perf30d, pu
 "FORMAT VERDICT FINAL OBLIGATOIRE : Apres le tableau checklist, rediger un paragraphe narratif de 4-6 lignes expliquant le raisonnement complet — pourquoi ce verdict, quels signaux ont ete determinants, quel est le risque principal, et la conclusion actionnable claire pour le trader.";
 
 const userMessage = "Analyse earnings pour " + ticker + ".\n" +
+  "Profil societe : " + (profile ? JSON.stringify(profile) : "non disponible") + "\n" +
   "Donnees earnings : " + JSON.stringify(earningsData) + "\n" +
   "Historique 4 trimestres : " + JSON.stringify(history) + "\n" +
   "Performance 30 jours : " + (perf30d !== null ? perf30d.toFixed(2) + "%" : "non disponible") + "\n" +
@@ -275,9 +276,8 @@ const userMessage = "Analyse earnings pour " + ticker + ".\n" +
   const response = await fetch('/api/claude', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ system: SYSTEM_PROMPT, messages: [{ role: 'user', content: userMessage }] }),
-  });
-
+   body: JSON.stringify({ system: SYSTEM_PROMPT, messages: [{ role: 'user', content: userMessage }], useWebSearch }),
+    
   if (!response.ok) throw new Error('Claude API error');
   const data = await response.json();
   return data.content?.[0]?.text ?? 'Erreur analyse';
