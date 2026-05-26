@@ -12,29 +12,37 @@ const supabase = createClient(
 
 // ─── Earnings du jour ───────────────────────────────────────────────────
 export async function getEarningsToday() {
-  const today = new Date().toLocaleDateString('fr-FR', {
-    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
-  });
-
-  const prompt = `Today is ${new Date().toISOString().split('T')[0]}.
-Search for earnings releases TODAY on NYSE, NASDAQ, XETRA, Euronext, LSE.
-You MUST respond with ONLY a valid JSON array. No text before, no text after, no explanation.
-Example of the ONLY acceptable response format:
-[{"symbol":"NVDA","name":"NVIDIA Corp","time":"AMC","exchange":"NASDAQ"},{"symbol":"CRM","name":"Salesforce","time":"AMC","exchange":"NYSE"}]
-Rules:
-- Only large and mid-cap companies with analyst coverage
-- Maximum 20 results
-- time must be exactly "BMO" or "AMC"
-- YOUR ENTIRE RESPONSE MUST BE ONLY THE JSON ARRAY, NOTHING ELSE`;
-
+  const date = new Date().toISOString().split('T')[0];
+  
   const res = await fetch('/api/claude', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      messages: [{ role: 'user', content: prompt }],
+      messages: [{ role: 'user', content: `Search earnings releases for ${date} on NYSE NASDAQ XETRA Euronext LSE. List only large and mid-cap tickers. Respond with ONLY a comma-separated list of ticker symbols, nothing else. Example: NVDA,CRM,COST,SAP` }],
       useWebSearch: true,
     }),
   });
+
+  if (!res.ok) throw new Error(`Earnings fetch error ${res.status}`);
+  const data = await res.json();
+  const text = data.content?.[0]?.text ?? '';
+  
+  // Parse liste de tickers séparés par virgules ou espaces ou sauts de ligne
+  const tickers = text
+    .replace(/[^A-Z0-9,\n\s.]/g, '')
+    .split(/[,\n\s]+/)
+    .map(t => t.trim())
+    .filter(t => t.length >= 1 && t.length <= 6 && /^[A-Z]/.test(t))
+    .slice(0, 20);
+
+  if (tickers.length === 0) throw new Error('Aucun ticker détecté');
+
+  return tickers.map(symbol => ({
+    symbol,
+    time: '?',
+    exchange: '',
+  }));
+}
 
   if (!res.ok) throw new Error(`Earnings fetch error ${res.status}`);
   const data = await res.json();
