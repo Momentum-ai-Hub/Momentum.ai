@@ -194,7 +194,7 @@ const userMessage = "Analyse earnings pour " + ticker + ".\n" +
   if (!response.ok) throw new Error('Claude API error');
   const data = await response.json();
   return data.content?.[0]?.text ?? 'Erreur analyse';
-
+  }
 
 // ─── ANTHROPIC CLAUDE : Classification ticker (Correctif v1.1) ───────────────
 export async function classifyTicker(name, ticker) {
