@@ -33,22 +33,6 @@ export async function getEarningsToday() {
   if (tickers.length === 0) throw new Error('Aucun ticker detecte');
   return tickers.map(function(symbol) { return { symbol: symbol, time: '?', exchange: '' }; });
 }
-  // Parse liste de tickers séparés par virgules ou espaces ou sauts de ligne
-  const tickers = text
-    .replace(/[^A-Z0-9,\n\s.]/g, '')
-    .split(/[,\n\s]+/)
-    .map(t => t.trim())
-    .filter(t => t.length >= 1 && t.length <= 6 && /^[A-Z]/.test(t))
-    .slice(0, 20);
-
-  if (tickers.length === 0) throw new Error('Aucun ticker détecté');
-
-  var result = [];
-  for (var i = 0; i < tickers.length; i++) {
-    result.push({ symbol: tickers[i], time: '?', exchange: '' });
-  }
-  return result;
-}
 
 // ─── Finnhub : Historique earnings (4 derniers trimestres) ───────────────────────
 export async function getEarningsHistory(ticker) {
