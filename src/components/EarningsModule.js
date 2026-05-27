@@ -40,16 +40,16 @@ function hasEnoughData(history, perf30d, profile) {
 }
 
 export default function EarningsModule() {
-  var [earningsList, setEarningsList]               = useState([]);
-  var [loading, setLoading]                         = useState(false);
-  var [globalAnalyzing, setGlobalAnalyzing]         = useState(false);
-  var [analyses, setAnalyses]                       = useState({});
-  var [analyzing, setAnalyzing]                     = useState({});
-  var [openTicker, setOpenTicker]                   = useState(null);
-  var [error, setError]                             = useState('');
-  var [manualTicker, setManualTicker]               = useState('');
-  var [insufficientTickers, setInsufficientTickers] = useState([]);
-  var [profiles, setProfiles]                       = useState({});
+  const [earningsList, setEarningsList]               = useState([]);
+  const [loading, setLoading]                         = useState(false);
+  const [globalAnalyzing, setGlobalAnalyzing]         = useState(false);
+  const [analyses, setAnalyses]                       = useState({});
+  const [analyzing, setAnalyzing]                     = useState({});
+  const [openTicker, setOpenTicker]                   = useState(null);
+  const [error, setError]                             = useState('');
+  const [manualTicker, setManualTicker]               = useState('');
+  const [insufficientTickers, setInsufficientTickers] = useState([]);
+  const [profiles, setProfiles]                       = useState({});
 
   function toggleTicker(ticker) {
     setOpenTicker(function(prev) { return prev === ticker ? null : ticker; });
