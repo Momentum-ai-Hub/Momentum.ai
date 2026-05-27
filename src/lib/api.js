@@ -11,43 +11,30 @@ const supabase = createClient(
 );
 
 // ─── Earnings du jour ───────────────────────────────────────────────────
-export async function getEarningsToday() {
-  const date = new Date().toISOString().split('T')[0];
-  const res = await fetch('/api/claude', {
+export async function getEarningsSession() {
+  var today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  var prompt = 'Tu es Momentum AI. Nous sommes le ' + today + '. Recherche les publications d earnings d aujourd hui sur NYSE, NASDAQ, XETRA, Euronext Paris, LSE. Capital 300 EUR. Ne retiens que cap > 1Md USD ou mouvement potentiel > 5%. FORMAT OBLIGATOIRE : commence par CALENDRIER DU JOUR avec tableau des tickers retenus. Puis pour chaque ticker une section separee par --- : emoji + TICKER -- Nom . Bourse . BMO/AMC . VERDICT en premiere ligne, puis bullets analyse quant, puis narrative 3-4 lignes, puis Verdict + Position EUR + Stop + Timing. Fin : TABLEAU RECAP. Zero JSON. Zero code.';
+  var body = {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      messages: [{ role: 'user', content: 'Search earnings releases for ' + date + ' on NYSE NASDAQ XETRA Euronext LSE. List only large and mid-cap tickers. Respond with ONLY a comma-separated list of ticker symbols, nothing else. Example: NVDA,CRM,COST,SAP' }],
-      useWebSearch: true,
-    }),
-  });
-  if (!res.ok) throw new Error('Earnings fetch error ' + res.status);
-  const data = await res.json();
-  const text = data.content[0].text || '';
-  const tickers = text
-    .replace(/[^A-Z0-9,\n\s]/g, '')
-    .split(/[,\n\s]+/)
-    .map(function(t) { return t.trim(); })
-  .filter(function(t) {
-  var exclude = ['NYSE','NASDAQ','XETRA','EURONEXT','LSE','BME','SIX','BORSA','AMC','BMO','THE','ETF','AND','FOR'];
-  return t.length >= 2 && t.length <= 6 && /^[A-Z]/.test(t) && exclude.indexOf(t) === -1;
-})
-    .slice(0, 20);
- if (tickers.length === 0) {
-  return [
-    { symbol: 'NVDA', time: '?', exchange: 'NASDAQ' },
-    { symbol: 'COST', time: 'AMC', exchange: 'NASDAQ' },
-    { symbol: 'CRM', time: 'AMC', exchange: 'NYSE' }
-  ];
+    body: JSON.stringify({ messages: [{ role: 'user', content: prompt }], useWebSearch: true }),
+  };
+  var res = await fetch('/api/claude', body);
+  if (!res.ok) throw new Error('Session error ' + res.status);
+  var data = await res.json();
+  var text = (data.content && data.content[0]) ? data.content[0].text || '' : '';
+  var tickers = [];
+  var lines = text.split('\n');
+  for (var i = 0; i < lines.length; i++) {
+    var match = lines[i].match(/^[^\w]*([A-Z]{2,6})\s*--/);
+    if (match) {
+      var sym = match[1];
+      var exclude = ['BMO','AMC','EPS','EV','USA','NYSE','LSE','THE','AND'];
+      if (exclude.indexOf(sym) === -1 && tickers.indexOf(sym) === -1) tickers.push(sym);
+    }
+  }
+  return { sessionText: text, tickers: tickers };
 }
-  return tickers.map(function(symbol) { return { symbol: symbol, time: '?', exchange: '' }; });
-}
-
-// ─── Finnhub : Historique earnings (4 derniers trimestres) ───────────────────────
-export async function getEarningsHistory(ticker) {
-  const url = 'https://finnhub.io/api/v1/stock/earnings?symbol=' + ticker + '&token=' + FINNHUB_KEY;
-  const res = await fetch(url);
-  const data = await res.json();
 
   
   // Normaliser au même format qu'avant
