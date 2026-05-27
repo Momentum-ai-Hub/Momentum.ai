@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import {
-  getEarningsToday,
+  getEarningsSession,
   getEarningsHistory,
   getPerf30d,
   getPutCallRatio,
@@ -32,121 +32,72 @@ function detectVerdict(text) {
   return 'NEUTRE';
 }
 
-function hasEnoughData(history, perf30d, profile) {
-  var hasHistory = Array.isArray(history) && history.length >= 2;
-  var hasPerf    = perf30d !== null;
-  var hasProfile = profile && profile.sector;
-  return hasHistory && hasPerf && hasProfile;
-}
-
 export default function EarningsModule() {
-  const [earningsList, setEarningsList]               = useState([]);
-  const [loading, setLoading]                         = useState(false);
-  const [globalAnalyzing, setGlobalAnalyzing]         = useState(false);
-  const [analyses, setAnalyses]                       = useState({});
-  const [analyzing, setAnalyzing]                     = useState({});
-  const [openTicker, setOpenTicker]                   = useState(null);
-  const [error, setError]                             = useState('');
-  const [manualTicker, setManualTicker]               = useState('');
-  const [insufficientTickers, setInsufficientTickers] = useState([]);
-  const [profiles, setProfiles]                       = useState({});
+  const [sessionText, setSessionText]   = useState('');
+  const [tickers, setTickers]           = useState([]);
+  const [analyses, setAnalyses]         = useState({});
+  const [profiles, setProfiles]         = useState({});
+  const [analyzing, setAnalyzing]       = useState({});
+  const [openTicker, setOpenTicker]     = useState(null);
+  const [loading, setLoading]           = useState(false);
+  const [analyzing2, setAnalyzing2]     = useState(false);
+  const [error, setError]               = useState('');
+  const [manualTicker, setManualTicker] = useState('');
 
   function toggleTicker(ticker) {
     setOpenTicker(function(prev) { return prev === ticker ? null : ticker; });
   }
 
-  async function loadEarnings() {
+  async function loadSession() {
     setLoading(true);
-    setGlobalAnalyzing(true);
     setError('');
+    setSessionText('');
+    setTickers([]);
     setAnalyses({});
-    setOpenTicker(null);
-    setInsufficientTickers([]);
     setProfiles({});
+    setOpenTicker(null);
 
     try {
-      var data = await getEarningsToday();
-      var list = data.filter(function(e) { return e.symbol && e.symbol.length >= 2; }).slice(0, 20);
-      setEarningsList(list);
+      var result = await getEarningsSession();
+      setSessionText(result.sessionText);
+      setTickers(result.tickers);
 
-      var withData    = [];
-      var withoutData = [];
-
-      await Promise.all(list.map(async function(item) {
-        var ticker  = item.symbol;
-        var history = await getEarningsHistory(ticker).catch(function() { return []; });
-        var perf30d = await getPerf30d(ticker).catch(function() { return null; });
-        var profile = await getStockProfile(ticker).catch(function() { return null; });
-
-        setProfiles(function(prev) {
-          var next = Object.assign({}, prev);
-          next[ticker] = profile;
-          return next;
-        });
-
-        if (hasEnoughData(history, perf30d, profile)) {
-          withData.push({ item: item, history: history, perf30d: perf30d, profile: profile });
-        } else {
-          withoutData.push({ item: item });
+      // Lancer les analyses individuelles en arriere-plan
+      if (result.tickers.length > 0) {
+        setAnalyzing2(true);
+        for (var i = 0; i < result.tickers.length; i++) {
+          var ticker = result.tickers[i];
+          setAnalyzing(function(prev) { var n = Object.assign({}, prev); n[ticker] = true; return n; });
+          try {
+            var history  = await getEarningsHistory(ticker).catch(function() { return []; });
+            var perf30d  = await getPerf30d(ticker).catch(function() { return null; });
+            var profile  = await getStockProfile(ticker).catch(function() { return null; });
+            var putCall  = await getPutCallRatio(ticker).catch(function() { return null; });
+            var shortInt = await getShortInterest(ticker).catch(function() { return null; });
+            setProfiles(function(prev) { var n = Object.assign({}, prev); n[ticker] = profile; return n; });
+            var res = await analyzeEarnings(ticker, { symbol: ticker, time: '?' }, history, perf30d, putCall, shortInt, profile, false);
+            setAnalyses(function(prev) { var n = Object.assign({}, prev); n[ticker] = res; return n; });
+          } catch(e) {
+            setAnalyses(function(prev) { var n = Object.assign({}, prev); n[ticker] = 'Erreur : ' + e.message; return n; });
+          }
+          setAnalyzing(function(prev) { var n = Object.assign({}, prev); n[ticker] = false; return n; });
+          await new Promise(function(r) { setTimeout(r, 800); });
         }
-      }));
-
-      setInsufficientTickers(withoutData.map(function(x) { return x.item; }));
-
-      for (var idx = 0; idx < withData.length; idx++) {
-        var entry  = withData[idx];
-        var ticker = entry.item.symbol;
-        setAnalyzing(function(prev) { var n = Object.assign({}, prev); n[ticker] = true; return n; });
-
-        try {
-          var putCall  = await getPutCallRatio(ticker).catch(function() { return null; });
-          var shortInt = await getShortInterest(ticker).catch(function() { return null; });
-          var result   = await analyzeEarnings(ticker, entry.item, entry.history, entry.perf30d, putCall, shortInt, entry.profile, false);
-          setAnalyses(function(prev) { var n = Object.assign({}, prev); n[ticker] = result; return n; });
-        } catch(e) {
-          setAnalyses(function(prev) { var n = Object.assign({}, prev); n[ticker] = 'Erreur : ' + e.message; return n; });
-        }
-
-        setAnalyzing(function(prev) { var n = Object.assign({}, prev); n[ticker] = false; return n; });
-        await new Promise(function(r) { setTimeout(r, 800); });
+        setAnalyzing2(false);
       }
-
     } catch(e) {
-      setError('Erreur chargement earnings : ' + e.message);
+      setError('Erreur : ' + e.message);
     }
-
     setLoading(false);
-    setGlobalAnalyzing(false);
-  }
-
-  async function runWebSearchAnalysis(item) {
-    var ticker = item.symbol;
-    setAnalyzing(function(prev) { var n = Object.assign({}, prev); n[ticker] = true; return n; });
-    try {
-      var history  = await getEarningsHistory(ticker).catch(function() { return []; });
-      var perf30d  = await getPerf30d(ticker).catch(function() { return null; });
-      var profile  = await getStockProfile(ticker).catch(function() { return null; });
-      var putCall  = await getPutCallRatio(ticker).catch(function() { return null; });
-      var shortInt = await getShortInterest(ticker).catch(function() { return null; });
-      var result   = await analyzeEarnings(ticker, item, history, perf30d, putCall, shortInt, profile, true);
-      setAnalyses(function(prev) { var n = Object.assign({}, prev); n[ticker] = result; return n; });
-      setProfiles(function(prev) { var n = Object.assign({}, prev); n[ticker] = profile; return n; });
-     
-    } catch(e) {
-      setAnalyses(function(prev) { var n = Object.assign({}, prev); n[ticker] = 'Erreur : ' + e.message; return n; });
-    }
-    setAnalyzing(function(prev) { var n = Object.assign({}, prev); n[ticker] = false; return n; });
   }
 
   async function addManual() {
     var ticker = manualTicker.trim().toUpperCase();
     if (!ticker || ticker.length < 2) return;
     setManualTicker('');
-    var syntheticItem = { symbol: ticker, time: '?', exchange: '' };
-    setEarningsList(function(prev) {
-      if (prev.find(function(e) { return e.symbol === ticker; })) return prev;
-      return [syntheticItem].concat(prev);
-    });
+    if (tickers.indexOf(ticker) === -1) {
+      setTickers(function(prev) { return [ticker].concat(prev); });
+    }
     setAnalyzing(function(prev) { var n = Object.assign({}, prev); n[ticker] = true; return n; });
     try {
       var history  = await getEarningsHistory(ticker).catch(function() { return []; });
@@ -155,8 +106,8 @@ export default function EarningsModule() {
       var putCall  = await getPutCallRatio(ticker).catch(function() { return null; });
       var shortInt = await getShortInterest(ticker).catch(function() { return null; });
       setProfiles(function(prev) { var n = Object.assign({}, prev); n[ticker] = profile; return n; });
-      var result = await analyzeEarnings(ticker, syntheticItem, history, perf30d, putCall, shortInt, profile, true);
-      setAnalyses(function(prev) { var n = Object.assign({}, prev); n[ticker] = result; return n; });
+      var res = await analyzeEarnings(ticker, { symbol: ticker, time: '?' }, history, perf30d, putCall, shortInt, profile, true);
+      setAnalyses(function(prev) { var n = Object.assign({}, prev); n[ticker] = res; return n; });
     } catch(e) {
       setAnalyses(function(prev) { var n = Object.assign({}, prev); n[ticker] = 'Erreur : ' + e.message; return n; });
     }
@@ -167,11 +118,13 @@ export default function EarningsModule() {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
   });
 
-  var analysedTickers = earningsList.filter(function(item) { return analyses[item.symbol]; });
+  var analysedTickers = tickers.filter(function(t) { return analyses[t]; });
+  var pendingTickers  = tickers.filter(function(t) { return analyzing[t]; });
 
   return (
     <div style={{ padding: '0' }}>
 
+      {/* Header */}
       <div style={{ marginBottom: '20px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
           <span style={{ fontSize: '20px' }}>📊</span>
@@ -182,6 +135,7 @@ export default function EarningsModule() {
         <p style={{ fontSize: '11px', color: '#8b949e', textTransform: 'capitalize', margin: 0 }}>{today}</p>
       </div>
 
+      {/* Saisie manuelle */}
       <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
         <input
           value={manualTicker}
@@ -193,12 +147,13 @@ export default function EarningsModule() {
         <button onClick={addManual} style={btnStyle('#f0b429', '#0d1117')}>Analyser</button>
       </div>
 
+      {/* Bouton charger */}
       <button
-        onClick={loadEarnings}
-        disabled={loading || globalAnalyzing}
+        onClick={loadSession}
+        disabled={loading}
         style={Object.assign({}, btnStyle('#161b22', '#e6edf3'), { width: '100%', marginBottom: '20px', border: '1px solid #21262d' })}
       >
-        {loading ? '⏳ Chargement...' : globalAnalyzing ? '🔄 Analyse en cours...' : '🔄 Charger les earnings du jour'}
+        {loading ? '⏳ Recherche en cours...' : '🔄 Charger les earnings du jour'}
       </button>
 
       {error && (
@@ -207,51 +162,66 @@ export default function EarningsModule() {
         </div>
       )}
 
-      {globalAnalyzing && (
-        <div style={{ textAlign: 'center', color: '#484f58', fontSize: '12px', padding: '24px', border: '1px dashed #21262d', borderRadius: '10px', marginBottom: '16px' }}>
-          🔄 Analyse en cours — résultats disponibles à la fin
+      {/* PARTIE 1 — Session du jour (texte complet scrollable) */}
+      {sessionText !== '' && (
+        <div style={{ marginBottom: '28px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', paddingBottom: '6px', borderBottom: '1px solid #21262d' }}>
+            <span style={{ fontSize: '13px' }}>🔍</span>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: '#e6edf3', letterSpacing: '1px' }}>SESSION DU JOUR</span>
+          </div>
+          <div style={{ background: '#080c10', border: '1px solid #1e2530', borderRadius: '12px', padding: '16px' }}>
+            <pre style={{ whiteSpace: 'pre-wrap', fontSize: '12.5px', lineHeight: '1.9', color: '#c9d1d9', fontFamily: 'IBM Plex Mono, monospace', margin: 0 }}>
+              {sessionText}
+            </pre>
+          </div>
         </div>
       )}
 
-      {!globalAnalyzing && analysedTickers.length > 0 && (
+      {/* PARTIE 2 — Cartes individuelles triees par verdict */}
+      {analysedTickers.length > 0 && (
         <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', paddingBottom: '6px', borderBottom: '1px solid #21262d' }}>
+            <span style={{ fontSize: '13px' }}>📋</span>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: '#e6edf3', letterSpacing: '1px' }}>ANALYSES DÉTAILLÉES</span>
+            {analyzing2 && (
+              <span style={{ fontSize: '10px', color: '#484f58', marginLeft: 'auto' }}>🔄 en cours...</span>
+            )}
+          </div>
+
           {VERDICT_ORDER.map(function(group) {
-            var items = analysedTickers.filter(function(item) {
-              return detectVerdict(analyses[item.symbol]) === group;
+            var items = analysedTickers.filter(function(t) {
+              return detectVerdict(analyses[t]) === group;
             });
             if (items.length === 0) return null;
             var vs = VERDICT_STYLE[group];
 
             return (
               <div key={group} style={{ marginBottom: '20px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', paddingBottom: '6px', borderBottom: '1px solid ' + vs.border + '33' }}>
-                  <span style={{ fontSize: '13px' }}>{vs.emoji}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', paddingBottom: '5px', borderBottom: '1px solid ' + vs.border + '33' }}>
+                  <span>{vs.emoji}</span>
                   <span style={{ fontSize: '11px', fontWeight: 700, color: vs.color, letterSpacing: '1px' }}>{group}</span>
                   <span style={{ fontSize: '10px', color: '#484f58' }}>({items.length})</span>
                 </div>
 
-                {items.map(function(item) {
-                  var ticker   = item.symbol;
+                {items.map(function(ticker) {
                   var analyse  = analyses[ticker];
                   var isOpen   = openTicker === ticker;
                   var profile  = profiles[ticker];
                   var name     = profile && profile.name ? profile.name : '';
-                  var exchange = profile && profile.exchange ? profile.exchange : (item.exchange || '');
+                  var exchange = profile && profile.exchange ? profile.exchange : '';
 
                   return (
                     <div key={ticker} style={{ background: '#0d1117', border: '1px solid ' + (isOpen ? vs.border + '66' : '#1e2530'), borderRadius: '12px', marginBottom: '8px', overflow: 'hidden' }}>
+
                       <div onClick={function() { toggleTicker(ticker); }} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', cursor: 'pointer', background: isOpen ? vs.bg : 'transparent' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <span style={{ fontWeight: 800, fontSize: '14px', color: '#e6edf3', fontFamily: 'IBM Plex Mono, monospace' }}>{ticker}</span>
                             <span style={{ fontSize: '11px', fontWeight: 700, color: vs.color, background: vs.bg, border: '1px solid ' + vs.border, padding: '1px 7px', borderRadius: '4px' }}>{group}</span>
-                            <span style={{ fontSize: '10px', color: '#8b949e', background: '#161b22', padding: '1px 6px', borderRadius: '4px' }}>
-                              {item.time === 'BMO' ? '🌅 BMO' : item.time === 'AMC' ? '🌙 AMC' : '📅 ?'}
-                            </span>
                           </div>
                           {(name || exchange) && (
                             <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                              {name && <span style={{ fontSize: '11px', color: '#8b949e' }}>{name.length > 30 ? name.slice(0, 30) + '…' : name}</span>}
+                              {name && <span style={{ fontSize: '11px', color: '#8b949e' }}>{name.length > 32 ? name.slice(0, 32) + '...' : name}</span>}
                               {exchange && <span style={{ fontSize: '10px', color: '#484f58' }}>· {exchange}</span>}
                             </div>
                           )}
@@ -275,72 +245,25 @@ export default function EarningsModule() {
         </div>
       )}
 
-      {insufficientTickers.length > 0 && (
-        <div style={{ marginTop: '24px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', paddingBottom: '6px', borderBottom: '1px solid #21262d' }}>
-            <span style={{ fontSize: '12px' }}>⚠️</span>
-            <span style={{ fontSize: '11px', fontWeight: 700, color: '#484f58', letterSpacing: '1px' }}>DONNÉES INSUFFISANTES</span>
-            <span style={{ fontSize: '10px', color: '#484f58' }}>({insufficientTickers.length})</span>
-          </div>
-          <p style={{ fontSize: '11px', color: '#484f58', marginBottom: '10px', lineHeight: '1.5' }}>
-            Données limitées. Demande une analyse via web search si le titre t'intéresse.
-          </p>
-
-          {insufficientTickers.map(function(item) {
-            var ticker   = item.symbol;
-            var busy     = analyzing[ticker];
-            var result   = analyses[ticker];
-            var verdict  = result ? detectVerdict(result) : null;
-            var vs       = verdict ? VERDICT_STYLE[verdict] : null;
-            var profile  = profiles[ticker];
-            var name     = profile && profile.name ? profile.name : '';
-            var exchange = profile && profile.exchange ? profile.exchange : '';
-            var isOpen   = openTicker === ticker;
-
+      {/* Tickers en cours d'analyse */}
+      {pendingTickers.length > 0 && (
+        <div style={{ marginTop: '12px' }}>
+          {pendingTickers.map(function(ticker) {
             return (
-              <div key={ticker} style={{ background: '#080c10', border: '1px solid ' + (result && vs ? vs.border + '44' : '#1e2530'), borderRadius: '10px', marginBottom: '6px', overflow: 'hidden', opacity: busy ? 0.6 : 1 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px' }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontWeight: 700, fontSize: '13px', color: '#484f58', fontFamily: 'IBM Plex Mono, monospace' }}>{ticker}</span>
-                      {verdict && vs && (
-                        <span style={{ fontSize: '10px', fontWeight: 700, color: vs.color, background: vs.bg, border: '1px solid ' + vs.border, padding: '1px 6px', borderRadius: '4px' }}>{verdict}</span>
-                      )}
-                    </div>
-                    {(name || exchange) && (
-                      <span style={{ fontSize: '10px', color: '#484f58' }}>{name}{exchange ? ' · ' + exchange : ''}</span>
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    {!result && (
-                      <button onClick={function() { runWebSearchAnalysis(item); }} disabled={busy} style={btnStyle(busy ? '#0d1117' : '#161b22', busy ? '#484f58' : '#8b949e')}>
-                        {busy ? '⏳' : '🔍 Web search'}
-                      </button>
-                    )}
-                    {result && (
-                      <span onClick={function() { toggleTicker(ticker); }} style={{ color: '#484f58', fontSize: '12px', cursor: 'pointer' }}>
-                        {isOpen ? '▲' : '▼'}
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {result && isOpen && (
-                  <div style={{ borderTop: '1px solid #161b22', padding: '14px', background: vs ? vs.bg : 'transparent' }}>
-                    <pre style={{ whiteSpace: 'pre-wrap', fontSize: '12px', lineHeight: '1.8', color: '#c9d1d9', fontFamily: 'IBM Plex Mono, monospace', margin: 0 }}>
-                      {result}
-                    </pre>
-                  </div>
-                )}
+              <div key={ticker} style={{ background: '#0d1117', border: '1px solid #1e2530', borderRadius: '10px', padding: '12px 14px', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '12px', color: '#484f58' }}>⏳</span>
+                <span style={{ fontSize: '13px', fontWeight: 700, color: '#484f58', fontFamily: 'IBM Plex Mono, monospace' }}>{ticker}</span>
+                <span style={{ fontSize: '11px', color: '#484f58' }}>analyse en cours...</span>
               </div>
             );
           })}
         </div>
       )}
 
-      {earningsList.length === 0 && !loading && !globalAnalyzing && (
+      {sessionText === '' && tickers.length === 0 && !loading && (
         <div style={{ textAlign: 'center', color: '#484f58', fontSize: '12px', paddingTop: '48px', lineHeight: '1.8' }}>
-          Aucun earnings chargé.<br />Clique sur "Charger" ou saisis un ticker manuellement.
+          Clique sur "Charger" pour lancer la session earnings du jour.<br />
+          Ou saisis un ticker manuellement.
         </div>
       )}
     </div>
