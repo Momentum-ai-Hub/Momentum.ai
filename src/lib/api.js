@@ -38,8 +38,7 @@ export async function getEarningsSession() {
 
 // ─── Profile Earnings ───────────────────────────────────────────
 export async function getStockProfile(ticker) {
-  const url = `https://finnhub.io/api/v1/stock/profile2?symbol=${ticker}&token=${FINNHUB_KEY}`;
-  const res = await fetch(url);
+  const url = 'https://finnhub.io/api/v1/stock/profile2?symbol=' + ticker + '&token=' + FINNHUB_KEY;
   if (!res.ok) return null;
   const data = await res.json();
   if (!data.name) return null;
@@ -53,7 +52,7 @@ export async function getStockProfile(ticker) {
 
 // ─── FINNHUB : Quote (prix actuel) ───────────────────────────────────────────
 export async function getQuote(ticker) {
-  const url = `https://finnhub.io/api/v1/quote?symbol=${ticker}&token=${FINNHUB_KEY}`;
+  const url = 'https://finnhub.io/api/v1/quote?symbol=' + ticker + '&token=' + FINNHUB_KEY;
   const res = await fetch(url);
   if (!res.ok) throw new Error('Finnhub quote error');
   return res.json();
@@ -61,8 +60,7 @@ export async function getQuote(ticker) {
 
 // ─── TWELVEDATA : Performance 30 jours ───────────────────────────────────────
 export async function getPerf30d(ticker) {
-  const url = `https://api.twelvedata.com/time_series?symbol=${ticker}&interval=1day&outputsize=31&apikey=${TWELVEDATA_KEY}`;
-  const res = await fetch(url);
+ const url = 'https://api.twelvedata.com/time_series?symbol=' + ticker + '&interval=1day&outputsize=31&apikey=' + TWELVEDATA_KEY;
   if (!res.ok) throw new Error('TwelveData perf error');
   const data = await res.json();
   if (!data.values || data.values.length < 2) return null;
@@ -73,7 +71,7 @@ export async function getPerf30d(ticker) {
 
 // ─── FINNHUB : Short interest ─────────────────────────────────────────────────
 export async function getShortInterest(ticker) {
-  const url = `https://finnhub.io/api/v1/stock/short-interest?symbol=${ticker}&token=${FINNHUB_KEY}`;
+const url = 'https://finnhub.io/api/v1/stock/short-interest?symbol=' + ticker + '&token=' + FINNHUB_KEY;
   const res = await fetch(url);
   if (!res.ok) return null;
   const data = await res.json();
@@ -83,7 +81,7 @@ export async function getShortInterest(ticker) {
 // ─── FINNHUB : Put/Call ratio (options) ──────────────────────────────────────
 export async function getPutCallRatio(ticker) {
   // Finnhub options chain → calcul manuel put/call
-  const url = `https://finnhub.io/api/v1/stock/option-chain?symbol=${ticker}&token=${FINNHUB_KEY}`;
+  const url = 'https://finnhub.io/api/v1/stock/option-chain?symbol=' + ticker + '&token=' + FINNHUB_KEY;
   const res = await fetch(url);
   if (!res.ok) return null;
   const data = await res.json();
@@ -99,7 +97,7 @@ export async function getPutCallRatio(ticker) {
 // ─── TWELVEDATA : Prix matières premières ────────────────────────────────────
 export async function getCommodityPrice(symbol) {
   // Symboles TwelveData : XAU/USD, WTI/USD, LIT (lithium ETF), COPPER, URA (uranium ETF)
-  const url = `https://api.twelvedata.com/quote?symbol=${symbol}&apikey=${TWELVEDATA_KEY}`;
+  const url = 'https://api.twelvedata.com/quote?symbol=' + symbol + '&apikey=' + TWELVEDATA_KEY;
   const res = await fetch(url);
   if (!res.ok) throw new Error('TwelveData commodity error');
   return res.json();
@@ -107,7 +105,7 @@ export async function getCommodityPrice(symbol) {
 
 // ─── TWELVEDATA : Variation % sur N jours ────────────────────────────────────
 export async function getCommodityChange(symbol, days = 5) {
-  const url = `https://api.twelvedata.com/time_series?symbol=${symbol}&interval=1day&outputsize=${days + 1}&apikey=${TWELVEDATA_KEY}`;
+  const url = 'https://api.twelvedata.com/time_series?symbol=' + symbol + '&interval=1day&outputsize=' + (days + 1) + '&apikey=' + TWELVEDATA_KEY;
   const res = await fetch(url);
   if (!res.ok) return null;
   const data = await res.json();
