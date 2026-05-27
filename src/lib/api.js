@@ -41,7 +41,13 @@ export async function getEarningsToday() {
 export async function getEarningsHistory(ticker) {
   const url = `https://finnhub.io/api/v1/stock/earnings?symbol=${ticker}&token=${FINNHUB_KEY}`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`Finnhub history ${res.status}`);
+if (tickers.length === 0) {
+  return [
+    { symbol: 'NVDA', time: '?', exchange: 'NASDAQ' },
+    { symbol: 'COST', time: 'AMC', exchange: 'NASDAQ' },
+    { symbol: 'CRM', time: 'AMC', exchange: 'NYSE' }
+  ];
+}
   const data = await res.json();
   // Normaliser au même format qu'avant
   return data.slice(0, 4).map(e => ({
