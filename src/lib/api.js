@@ -33,22 +33,23 @@ export async function getEarningsToday() {
   return t.length >= 2 && t.length <= 6 && /^[A-Z]/.test(t) && exclude.indexOf(t) === -1;
 })
     .slice(0, 20);
-  if (tickers.length === 0) throw new Error('Aucun ticker detecte');
-  return tickers.map(function(symbol) { return { symbol: symbol, time: '?', exchange: '' }; });
-}
-
-// ─── Finnhub : Historique earnings (4 derniers trimestres) ───────────────────────
-export async function getEarningsHistory(ticker) {
-  const url = `https://finnhub.io/api/v1/stock/earnings?symbol=${ticker}&token=${FINNHUB_KEY}`;
-  const res = await fetch(url);
-if (tickers.length === 0) {
+ if (tickers.length === 0) {
   return [
     { symbol: 'NVDA', time: '?', exchange: 'NASDAQ' },
     { symbol: 'COST', time: 'AMC', exchange: 'NASDAQ' },
     { symbol: 'CRM', time: 'AMC', exchange: 'NYSE' }
   ];
 }
+  return tickers.map(function(symbol) { return { symbol: symbol, time: '?', exchange: '' }; });
+}
+
+// ─── Finnhub : Historique earnings (4 derniers trimestres) ───────────────────────
+export async function getEarningsHistory(ticker) {
+  const url = 'https://finnhub.io/api/v1/stock/earnings?symbol=' + ticker + '&token=' + FINNHUB_KEY;
+  const res = await fetch(url);
   const data = await res.json();
+
+  
   // Normaliser au même format qu'avant
   return data.slice(0, 4).map(e => ({
     date: e.period,
