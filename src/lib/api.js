@@ -36,17 +36,6 @@ export async function getEarningsSession() {
   return { sessionText: text, tickers: tickers };
 }
 
-  
-  // Normaliser au même format qu'avant
-  return data.slice(0, 4).map(e => ({
-    date: e.period,
-    actualEarningResult: e.actual,
-    estimatedEarning: e.estimate,
-    surprise: e.surprise,
-    surprisePercent: e.surprisePercent,
-  }));
-}
-
 // ─── Profile Earnings ───────────────────────────────────────────
 export async function getStockProfile(ticker) {
   const url = `https://finnhub.io/api/v1/stock/profile2?symbol=${ticker}&token=${FINNHUB_KEY}`;
