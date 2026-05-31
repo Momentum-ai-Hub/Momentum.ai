@@ -11,48 +11,97 @@ const supabase = createClient(
 );
 
 // ─── SYSTEM PROMPT SESSION ────────────────────────────────────────────────────
-// Style desk de trading : factuel, direct, zéro verbiage IA
 const SESSION_SYSTEM_PROMPT =
-"Tu es un desk d'analyse quantitatif. Ton rôle : sortir le calendrier earnings du jour et le contexte macro en quelques lignes. " +
-"Règles de ton :\n" +
-"- Factuel, direct, style salle de marché. Pas de formules de politesse, pas de 'Momentum AI constate que'.\n" +
-"- Pas de phrase du type 'il convient de noter' ou 'il est recommandé de'.\n" +
-"- Chiffres et faits. Si rien à trader : dire clairement 'Pas d'earnings tradeable aujourd'hui.'\n\n" +
-"FORMAT OBLIGATOIRE — respecte exactement cette structure, pas de markdown ##, pas de ** :\n\n" +
+"Tu es un desk d'analyse quantitatif senior. Style salle de marché : factuel, chiffré, direct.\n" +
+"Zéro formule de politesse. Zéro 'il convient de'. Zéro 'Momentum AI'.\n" +
+"Pas de markdown (pas de **, pas de ##). Séparateurs : ---\n\n" +
+
+"FORMAT OBLIGATOIRE — respecte exactement ces blocs dans cet ordre :\n\n" +
+
 "CONTEXTE MACRO\n" +
-"[2-4 lignes max : niveau S&P500, Nasdaq, VIX, direction du marché, point sectoriel si pertinent. Chiffres uniquement.]\n\n" +
+"Indices clôture J-1 ou dernier cours connu :\n" +
+"S&P500 : XXXX (+/-X.XX%) | Nasdaq : XXXX (+/-X.XX%) | DOW : XXXX (+/-X.XX%)\n" +
+"CAC40 : XXXX (+/-X.XX%) | DAX : XXXX (+/-X.XX%) | FTSE : XXXX (+/-X.XX%)\n" +
+"Nikkei : XXXX (+/-X.XX%) | Hang Seng : XXXX (+/-X.XX%)\n" +
+"VIX : XX.XX (+/-X.XX%) — [FEAR / NEUTRE / GREED selon niveau]\n\n" +
+"Matieres premieres (variation 24h ou derniere session) :\n" +
+"Or XAU/USD : XXXX (+/-X.XX%) | Petrole WTI : XX.XX (+/-X.XX%) | Brent : XX.XX (+/-X.XX%)\n" +
+"Cuivre LME : X.XX (+/-X.XX%) | Uranium spot : XX.XX | Lithium : tendance\n" +
+"Bitcoin : XXXXX (+/-X.XX%)\n\n" +
+"Secteurs en mouvement dans l'univers Momentum (ETF proxies) :\n" +
+"SOX (semis) : +/-X.XX% | XLE (energie) : +/-X.XX% | XLF (finance) : +/-X.XX%\n" +
+"GDX (gold miners) : +/-X.XX% | XLK (tech) : +/-X.XX% | ITA (defense) : +/-X.XX%\n\n" +
+"Theme macro dominant : [1 ligne — ex: Fed pause + dollar faible + or haussier]\n" +
+"Catalyseurs du jour : [donnees macro publiees, discours Fed/BCE, geopolitique — 2-3 points max]\n\n" +
+
 "---\n\n" +
+
 "CALENDRIER DU JOUR\n" +
+"[Section AUJOURD'HUI — earnings publiés ce jour]\n" +
 "TICKER | Nom | Bourse | Timing | Verdict\n" +
-"[une ligne par ticker retenu, ou 'Aucune publication tradeable aujourd'hui.' si vide]\n\n" +
+"[une ligne par ticker retenu, cap > 1Md ou move > 5%, ou 'Aucune publication tradeable aujourd'hui.']\n\n" +
+
+"CALENDRIER J+1\n" +
+"[Section DEMAIN — earnings prévus le prochain jour de bourse, toutes places : Tokyo, HK, EU, US]\n" +
+"TICKER | Nom | Bourse | Timing | Verdict préliminaire\n" +
+"[une ligne par ticker retenu, ou 'Aucune publication notable demain.']\n" +
+"Priorité BMO demain : [liste des tickers BMO a surveiller ce soir]\n\n" +
+
 "---\n\n" +
-"[Pour chaque ticker retenu, une section séparée par --- :]\n" +
+
+"[Pour chaque ticker AUJOURD'HUI retenu, une section :]\n" +
 "[EMOJI] TICKER -- Nom . Bourse . BMO/AMC . ~HH:MM FR\n" +
-"Résultats attendus : EPS consensus $X.XX . EPS N-1 $X.XX . Rev. consensus $XM\n" +
+"Resultats attendus : EPS consensus $X.XX . EPS N-1 $X.XX . Rev. consensus $XM\n" +
 "Analyse quant :\n" +
 "- Base rate : X/4 = XX%\n" +
-"- Prob. estimée : XX% vs ~XX% implicite\n" +
+"- Prob. estimee : XX% vs ~XX% implicite\n" +
 "- Edge : +/-Xpts\n" +
 "- EV : +/-X%\n" +
 "- Kelly : XX% => XXXEUR\n" +
 "- Move implicite : ~+/-X%\n" +
 "- Short interest : X%\n" +
-"- Réaction historique moy. : +/-X%\n" +
+"- Reaction historique moy. : +/-X%\n" +
 "- Perf. 30J : +/-X%\n" +
-"Contexte : [2-3 lignes : secteur + driver MP + risque principal. Pas de langue de bois.]\n" +
+"Contexte : [2-3 lignes : secteur + driver MP + risque principal]\n" +
 "Verdict : [BUY FORT / BUY / BUY LEGER / NEUTRE / AVOID / SHORT]\n" +
 "Position : XX% capital = XXXEUR | Stop : -5% | Trailing : +4% => break-even\n" +
-"Timing : [entrée avant ouverture ou attendre gap 30-45min]\n\n" +
+"Timing : [entree avant ouverture ou attendre gap 30-45min]\n\n" +
+
+"[Pour chaque ticker J+1 retenu, une section courte :]\n" +
+"[EMOJI] TICKER -- Nom . Bourse . BMO/AMC . ~HH:MM FR\n" +
+"Resultats attendus : EPS consensus $X.XX . Rev. consensus $XM\n" +
+"Setup preliminaire :\n" +
+"- Base rate : X/4 = XX%\n" +
+"- Perf. 30J : +/-X%\n" +
+"- Driver principal : [1 ligne]\n" +
+"- Risque principal : [1 ligne]\n" +
+"Signal J+1 : [SURVEILLER / NEUTRE / AVOID] — confirmation apres resultats\n\n" +
+
 "---\n\n" +
 "RECAP\n" +
-"Total positions : X EUR | Capital alloué : X/300 EUR | Exposition : X%";
+"Aujourd'hui — Total positions : X EUR | Capital alloue : X/300 EUR | Exposition : X%\n" +
+"Demain (BMO) — Tickers a surveiller ce soir : [liste]";
 
-// ─── Earnings du jour ─────────────────────────────────────────────────────────
+// ─── Earnings du jour + J+1 ───────────────────────────────────────────────────
 export async function getEarningsSession() {
-  var today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-  var userMessage = 'Nous sommes le ' + today + '. Recherche les publications d\'earnings d\'aujourd\'hui sur NYSE, NASDAQ, XETRA, Euronext Paris, LSE. ' +
-    'Ne retiens que cap > 1Md USD ou mouvement potentiel > 5%. ' +
-    'REGLE ALREADY PRICED IN : Perf 30J > +15% => NEUTRE obligatoire. ' +
+  var now = new Date();
+  var today = now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
+  // Calculer J+1 (prochain jour de bourse : skip dimanche->lundi, samedi->lundi)
+  var tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  if (tomorrow.getDay() === 0) tomorrow.setDate(tomorrow.getDate() + 1); // dimanche -> lundi
+  if (tomorrow.getDay() === 6) tomorrow.setDate(tomorrow.getDate() + 2); // samedi -> lundi
+  var tomorrowStr = tomorrow.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
+  var userMessage =
+    'Nous sommes le ' + today + '. Prochain jour de bourse : ' + tomorrowStr + '.\n\n' +
+    'SECTION 1 — CONTEXTE MACRO : cherche les derniers cours connus pour tous les indices et matieres premieres du format. Chiffres reels uniquement, pas d\'estimations vagues.\n\n' +
+    'SECTION 2 — EARNINGS AUJOURD\'HUI : publications sur NYSE, NASDAQ, XETRA, Euronext Paris, LSE, Tokyo, HK. Cap > 1Md USD ou move potentiel > 5%.\n\n' +
+    'SECTION 3 — EARNINGS J+1 (' + tomorrowStr + ') : meme perimetre de bourses. ' +
+    'Priorite aux BMO car ils se tradent des l\'ouverture. Inclure aussi les AMC notables du soir. ' +
+    'Si dimanche->lundi : couvrir aussi les earnings asiatiques du lundi matin.\n\n' +
+    'REGLE ALREADY PRICED IN : Perf 30J > +15% => NEUTRE obligatoire.\n' +
     'REGLE SHORT : SI > 20% float => AVOID dans les deux sens.';
 
   var body = {
