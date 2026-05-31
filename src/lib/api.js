@@ -10,35 +10,84 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
-// ─── Earnings du jour ───────────────────────────────────────────────────
+// ─── SYSTEM PROMPT SESSION ────────────────────────────────────────────────────
+// Style desk de trading : factuel, direct, zéro verbiage IA
+const SESSION_SYSTEM_PROMPT =
+"Tu es un desk d'analyse quantitatif. Ton rôle : sortir le calendrier earnings du jour et le contexte macro en quelques lignes. " +
+"Règles de ton :\n" +
+"- Factuel, direct, style salle de marché. Pas de formules de politesse, pas de 'Momentum AI constate que'.\n" +
+"- Pas de phrase du type 'il convient de noter' ou 'il est recommandé de'.\n" +
+"- Chiffres et faits. Si rien à trader : dire clairement 'Pas d'earnings tradeable aujourd'hui.'\n\n" +
+"FORMAT OBLIGATOIRE — respecte exactement cette structure, pas de markdown ##, pas de ** :\n\n" +
+"CONTEXTE MACRO\n" +
+"[2-4 lignes max : niveau S&P500, Nasdaq, VIX, direction du marché, point sectoriel si pertinent. Chiffres uniquement.]\n\n" +
+"---\n\n" +
+"CALENDRIER DU JOUR\n" +
+"TICKER | Nom | Bourse | Timing | Verdict\n" +
+"[une ligne par ticker retenu, ou 'Aucune publication tradeable aujourd'hui.' si vide]\n\n" +
+"---\n\n" +
+"[Pour chaque ticker retenu, une section séparée par --- :]\n" +
+"[EMOJI] TICKER -- Nom . Bourse . BMO/AMC . ~HH:MM FR\n" +
+"Résultats attendus : EPS consensus $X.XX . EPS N-1 $X.XX . Rev. consensus $XM\n" +
+"Analyse quant :\n" +
+"- Base rate : X/4 = XX%\n" +
+"- Prob. estimée : XX% vs ~XX% implicite\n" +
+"- Edge : +/-Xpts\n" +
+"- EV : +/-X%\n" +
+"- Kelly : XX% => XXXEUR\n" +
+"- Move implicite : ~+/-X%\n" +
+"- Short interest : X%\n" +
+"- Réaction historique moy. : +/-X%\n" +
+"- Perf. 30J : +/-X%\n" +
+"Contexte : [2-3 lignes : secteur + driver MP + risque principal. Pas de langue de bois.]\n" +
+"Verdict : [BUY FORT / BUY / BUY LEGER / NEUTRE / AVOID / SHORT]\n" +
+"Position : XX% capital = XXXEUR | Stop : -5% | Trailing : +4% => break-even\n" +
+"Timing : [entrée avant ouverture ou attendre gap 30-45min]\n\n" +
+"---\n\n" +
+"RECAP\n" +
+"Total positions : X EUR | Capital alloué : X/300 EUR | Exposition : X%";
+
+// ─── Earnings du jour ─────────────────────────────────────────────────────────
 export async function getEarningsSession() {
   var today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-  var prompt = 'Tu es Momentum AI. Nous sommes le ' + today + '. Recherche les publications d earnings d aujourd hui sur NYSE, NASDAQ, XETRA, Euronext Paris, LSE. Capital 300 EUR. Ne retiens que cap > 1Md USD ou mouvement potentiel > 5%. FORMAT OBLIGATOIRE : commence par CALENDRIER DU JOUR avec tableau des tickers retenus. Puis pour chaque ticker une section separee par --- : emoji + TICKER -- Nom . Bourse . BMO/AMC . VERDICT en premiere ligne, puis bullets analyse quant, puis narrative 3-4 lignes, puis Verdict + Position EUR + Stop + Timing. Fin : TABLEAU RECAP. Zero JSON. Zero code.';
+  var userMessage = 'Nous sommes le ' + today + '. Recherche les publications d\'earnings d\'aujourd\'hui sur NYSE, NASDAQ, XETRA, Euronext Paris, LSE. ' +
+    'Ne retiens que cap > 1Md USD ou mouvement potentiel > 5%. ' +
+    'REGLE ALREADY PRICED IN : Perf 30J > +15% => NEUTRE obligatoire. ' +
+    'REGLE SHORT : SI > 20% float => AVOID dans les deux sens.';
+
   var body = {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages: [{ role: 'user', content: prompt }], useWebSearch: true }),
+    body: JSON.stringify({
+      system: SESSION_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: userMessage }],
+      useWebSearch: true
+    }),
   };
   var res = await fetch('/api/claude', body);
   if (!res.ok) throw new Error('Session error ' + res.status);
   var data = await res.json();
   var text = (data.content && data.content[0]) ? data.content[0].text || '' : '';
+
+  // Extraire les tickers depuis les lignes "TICKER --"
   var tickers = [];
   var lines = text.split('\n');
   for (var i = 0; i < lines.length; i++) {
     var match = lines[i].match(/^[^\w]*([A-Z]{2,6})\s*--/);
     if (match) {
       var sym = match[1];
-      var exclude = ['BMO','AMC','EPS','EV','USA','NYSE','LSE','THE','AND'];
+      var exclude = ['BMO', 'AMC', 'EPS', 'EV', 'USA', 'NYSE', 'LSE', 'THE', 'AND', 'ETF'];
       if (exclude.indexOf(sym) === -1 && tickers.indexOf(sym) === -1) tickers.push(sym);
     }
   }
   return { sessionText: text, tickers: tickers };
 }
 
-// ─── Profile Earnings ───────────────────────────────────────────
+// ─── Profile stock ────────────────────────────────────────────────────────────
+// FIX : fetch manquant sur res
 export async function getStockProfile(ticker) {
   const url = 'https://finnhub.io/api/v1/stock/profile2?symbol=' + ticker + '&token=' + FINNHUB_KEY;
+  const res = await fetch(url);  // FIX : fetch ajouté
   if (!res.ok) return null;
   const data = await res.json();
   if (!data.name) return null;
@@ -59,8 +108,10 @@ export async function getQuote(ticker) {
 }
 
 // ─── TWELVEDATA : Performance 30 jours ───────────────────────────────────────
+// FIX : fetch manquant sur res
 export async function getPerf30d(ticker) {
- const url = 'https://api.twelvedata.com/time_series?symbol=' + ticker + '&interval=1day&outputsize=31&apikey=' + TWELVEDATA_KEY;
+  const url = 'https://api.twelvedata.com/time_series?symbol=' + ticker + '&interval=1day&outputsize=31&apikey=' + TWELVEDATA_KEY;
+  const res = await fetch(url);  // FIX : fetch ajouté
   if (!res.ok) throw new Error('TwelveData perf error');
   const data = await res.json();
   if (!data.values || data.values.length < 2) return null;
@@ -71,16 +122,24 @@ export async function getPerf30d(ticker) {
 
 // ─── FINNHUB : Short interest ─────────────────────────────────────────────────
 export async function getShortInterest(ticker) {
-const url = 'https://finnhub.io/api/v1/stock/short-interest?symbol=' + ticker + '&token=' + FINNHUB_KEY;
+  const url = 'https://finnhub.io/api/v1/stock/short-interest?symbol=' + ticker + '&token=' + FINNHUB_KEY;
   const res = await fetch(url);
   if (!res.ok) return null;
   const data = await res.json();
   return data?.data?.[0]?.shortInterest ?? null;
 }
 
-// ─── FINNHUB : Put/Call ratio (options) ──────────────────────────────────────
+// ─── FINNHUB : Earnings history ───────────────────────────────────────────────
+export async function getEarningsHistory(ticker) {
+  const url = 'https://finnhub.io/api/v1/stock/earnings?symbol=' + ticker + '&token=' + FINNHUB_KEY;
+  const res = await fetch(url);
+  if (!res.ok) return [];
+  const data = await res.json();
+  return Array.isArray(data) ? data.slice(0, 4) : [];
+}
+
+// ─── FINNHUB : Put/Call ratio ─────────────────────────────────────────────────
 export async function getPutCallRatio(ticker) {
-  // Finnhub options chain → calcul manuel put/call
   const url = 'https://finnhub.io/api/v1/stock/option-chain?symbol=' + ticker + '&token=' + FINNHUB_KEY;
   const res = await fetch(url);
   if (!res.ok) return null;
@@ -96,7 +155,6 @@ export async function getPutCallRatio(ticker) {
 
 // ─── TWELVEDATA : Prix matières premières ────────────────────────────────────
 export async function getCommodityPrice(symbol) {
-  // Symboles TwelveData : XAU/USD, WTI/USD, LIT (lithium ETF), COPPER, URA (uranium ETF)
   const url = 'https://api.twelvedata.com/quote?symbol=' + symbol + '&apikey=' + TWELVEDATA_KEY;
   const res = await fetch(url);
   if (!res.ok) throw new Error('TwelveData commodity error');
@@ -115,80 +173,89 @@ export async function getCommodityChange(symbol, days = 5) {
   return ((latest - oldest) / oldest) * 100;
 }
 
-// ─── ANTHROPIC CLAUDE : Analyse earnings ─────────────────────────────────────
+// ─── ANTHROPIC CLAUDE : Analyse earnings individuelle ────────────────────────
 export async function analyzeEarnings(ticker, earningsData, history, perf30d, putCall, shortInterest, profile, useWebSearch = false) {
-  
-const SYSTEM_PROMPT = "Tu es Momentum AI — analyste quantitatif expert en trading d'earnings.\n\n" +
-"CAPITAL : 300EUR | Risque max/trade : 5% | Taille standard : 65% | Fort edge : 80% max | Max 2 positions | Trade Republic (1EUR/ordre)\n\n" +
-"REGLE ALREADY PRICED IN : Perf 30J > +15% => NEUTRE obligatoire.\n" +
-"REGLE GUIDANCE : Beat+Beat+Guidance relevee=>BUY / stable=>BUY modere / decevante=>NEUTRE / Miss EPS=>AVOID\n" +
-"REGLE GAP : Attendre 30-45min. Consolide=>entrer. Gap>12%=>pull-back.\n" +
-"REGLE SHORT : EV<-5% ET Edge<-8pts ET SI<15% => SHORT possible. SI>20%=>AVOID 2 sens.\n\n" +
-"PROBABILITE ESTIMEE (Bayes) :\n" +
-"Base rate historique (% beats 4 derniers trimestres) + ajustements :\n" +
-"Rev growth >20%=>+6pts / >10%=>+3pts / >0%=>+1pt / negatif=>-4pts\n" +
+
+  const SYSTEM_PROMPT =
+"Tu es un analyste quant spécialisé earnings. Ton output est lu par un trader, pas par un grand public.\n\n" +
+"CAPITAL : 300EUR | Risque max/trade : 5% | Taille std : 65% | Fort edge : 80% | Max 2 positions | Trade Republic 1EUR/ordre\n\n" +
+"RÈGLES OBLIGATOIRES :\n" +
+"- Perf 30J > +15% => NEUTRE (already priced in), sans exception\n" +
+"- SI > 20% float => AVOID dans les deux sens, sans exception\n" +
+"- Beat+Beat+Guidance relevée => BUY\n" +
+"- Beat+Beat+Guidance stable => BUY modéré\n" +
+"- Beat+Beat+Guidance décevante => NEUTRE\n" +
+"- Miss EPS => AVOID\n" +
+"- Gap ouverture : attendre 30-45min. Gap > 12% => attendre pull-back\n\n" +
+"CALCUL PROBABILITÉ (Bayes) :\n" +
+"Base rate (% beats sur 4 trimestres) + ajustements :\n" +
+"Rev growth >20%=>+6pts / >10%=>+3pts / >0%=>+1pt / négatif=>-4pts\n" +
 "EPS momentum hausse >10%=>+3pts / hausse=>+1pt / baisse=>-3pts\n" +
-"Put/call <0.7=>+4pts / >1.2=>-3pts\n" +
-"Short interest >20% float => AVOID dans les deux sens\n\n" +
+"Put/call <0.7=>+4pts / >1.2=>-3pts\n\n" +
 "VERDICTS :\n" +
-"EV > 8% ET Edge > 10pts => BUY FORT 80% capital\n" +
-"EV > 5% ET Edge > 7pts => BUY 65% capital\n" +
-"EV > 2% ET Edge > 4pts => BUY LEGER 40% capital\n" +
+"EV > 8% ET Edge > 10pts => BUY FORT — 80% capital = 240EUR\n" +
+"EV > 5% ET Edge > 7pts => BUY — 65% capital = 195EUR\n" +
+"EV > 2% ET Edge > 4pts => BUY LEGER — 40% capital = 120EUR\n" +
 "EV entre -2% et +2% => NEUTRE\n" +
 "EV < -2% ET Edge < -4pts => AVOID\n" +
 "EV < -5% ET Edge < -8pts => AVOID / SHORT possible\n\n" +
-"TRACK RECORD 87.5% (14/16) : DDOG +30% OK / MCD +3% OK / MELI AVOID OK / VST AVOID OK / SHEL AVOID OK / PTON AVOID +7% KO / MNST +8.3% OK / DKNG +3.77% OK / NET -9.95% guidance KO / HIMS AVOID -17.6% OK / GTM AVOID -28.6% OK / BAYN BUY FORT +6% OK / FNV NEUTRE OK\n\n" +
-"LECONS : SI>20%=AVOID 2 sens / Guidance decisive / Beat+AI=surponderer / Perf30J>+15%=NEUTRE / Scanner XETRA + Euronext Paris\n\n" +
-"FORMAT DE REPONSE OBLIGATOIRE. Respecte exactement ce format. Zero JSON visible. Zero bloc de code. Zero markdown ##.\n\n" +
+"TON : factuel, chiffré, direct. Zéro langue de bois. Zéro formule de politesse.\n" +
+"Pas de phrase du type 'il convient de noter', 'Momentum AI recommande', 'il est important de'.\n" +
+"Si données insuffisantes : verdict quand même avec mention CONFIANCE FAIBLE.\n\n" +
+"FORMAT OBLIGATOIRE — pas de ## ni de ** dans le texte :\n\n" +
 "[EMOJI] TICKER -- Nom complet . BOURSE . BMO/AMC . ~HH:MM FR\n\n" +
-"Resultats attendus : EPS consensus $X.XX . EPS N-1 $X.XX . Rev. consensus $XM\n\n" +
+"Résultats attendus : EPS consensus $X.XX . EPS N-1 $X.XX . Rev. consensus $XM\n\n" +
 "Analyse quant :\n" +
 "- Base rate : X/4 trimestres battus = XX%\n" +
-"- Prob. estimee : XX% vs ~XX% implicite marche\n" +
+"- Prob. estimée : XX% vs ~XX% implicite marché\n" +
 "- Edge : +/-Xpts\n" +
 "- EV : +/-X%\n" +
 "- Kelly fractionnel : (p - q) / 4 = XX% => taille XX% capital = XXXEUR\n" +
 "- Move implicite : ~+/-X%\n" +
-"- Short interest : X% (signal squeeze / signal safe)\n" +
-"- Reaction historique moyenne : +/-X%\n" +
-"- Perf. 30J : +/-X% (ALREADY PRICED IN si >+15%)\n\n" +
-"Analyse narrative :\n" +
-"[Paragraphe 3-4 lignes : contexte sectoriel + comparaison trimestre precedent + signal matiere premiere + risque principal]\n\n" +
-"Verdict : [BUY FORT / BUY / BUY LEGER / NEUTRE / AVOID / SHORT]\n" +
-"Position : XX% capital = XXXEUR | Stop loss : -5% = -XXEUR | Trailing stop : +4% => break-even\n\n" +
+"- Short interest : X% (squeeze risk / safe)\n" +
+"- Réaction historique moy. : +/-X%\n" +
+"- Perf. 30J : +/-X% [ALREADY PRICED IN si >+15%]\n\n" +
+"Contexte :\n" +
+"[3-4 lignes : secteur ce trimestre + comparaison T précédent + signal matière première + risque principal. Direct, sans langue de bois.]\n\n" +
+"Verdict : BUY FORT / BUY / BUY LEGER / NEUTRE / AVOID / SHORT\n" +
+"Position : XX% capital = XXXEUR | Stop : -5% = -XXEUR | Trailing : +4% => break-even\n\n" +
 "Timing :\n" +
-"- BMO : entrer avant ouverture ou attendre gap 30-45min ?\n" +
-"- AMC : resultats a ~HH:MM FR => entrer le lendemain a ~HH:MM FR si guidance confirmee\n\n" +
-"Si donnees insuffisantes : donner quand meme un verdict avec mention CONFIANCE FAIBLE. Ne jamais afficher de JSON ni de code.";
-  
-const userMessage = "Analyse earnings pour " + ticker + ".\n" +
-  "Profil societe : " + (profile ? JSON.stringify(profile) : "non disponible") + "\n" +
-  "Donnees earnings : " + JSON.stringify(earningsData) + "\n" +
-  "Historique 4 trimestres : " + JSON.stringify(history) + "\n" +
-  "Performance 30 jours : " + (perf30d !== null ? perf30d.toFixed(2) + "%" : "non disponible") + "\n" +
-  "Put/Call ratio : " + (putCall !== null ? putCall.toFixed(2) : "non disponible") + "\n" +
-  "Short interest : " + (shortInterest !== null ? shortInterest : "non disponible");
+"BMO : [précision sur entrée]\n" +
+"AMC : [précision sur entrée]";
 
- const body = {
+  const userMessage =
+"Analyse earnings pour " + ticker + ".\n" +
+"Profil : " + (profile ? JSON.stringify(profile) : "non disponible") + "\n" +
+"Earnings data : " + JSON.stringify(earningsData) + "\n" +
+"Historique 4T : " + JSON.stringify(history) + "\n" +
+"Perf 30J : " + (perf30d !== null ? perf30d.toFixed(2) + "%" : "non disponible") + "\n" +
+"Put/Call : " + (putCall !== null ? putCall.toFixed(2) : "non disponible") + "\n" +
+"Short interest : " + (shortInterest !== null ? shortInterest : "non disponible");
+
+  const body = {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ system: SYSTEM_PROMPT, messages: [{ role: 'user', content: userMessage }], useWebSearch: useWebSearch }),
+    body: JSON.stringify({
+      system: SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: userMessage }],
+      useWebSearch: useWebSearch
+    }),
   };
   const response = await fetch('/api/claude', body);
   if (!response.ok) throw new Error('Claude API error');
   const data = await response.json();
   return data.content?.[0]?.text ?? 'Erreur analyse';
-  }
+}
 
 // ─── ANTHROPIC CLAUDE : Classification ticker (Correctif v1.1) ───────────────
 export async function classifyTicker(name, ticker) {
   const system = "Tu es un classificateur de titres boursiers. Retourne UNIQUEMENT un JSON valide, rien d'autre, sans backticks. { \"secteur\": \"[un des 21 secteurs]\", \"driver_principal\": \"[ex: Prix or]\", \"matieres_premieres\": [\"liste\"], \"type\": \"[EARNINGS PLAY / TITRE DE FOND / SPECULATIF]\", \"bourse\": \"[NYSE / NASDAQ / XETRA...]\", \"earnings_play\": true, \"already_priced_in_risk\": false }";
 
-const response = await fetch('/api/claude', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ system, messages: [{ role: 'user', content: "Ticker : " + name + " (" + ticker + ")" }] }),
-});
+  const response = await fetch('/api/claude', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ system, messages: [{ role: 'user', content: "Ticker : " + name + " (" + ticker + ")" }] }),
+  });
 
   if (!response.ok) throw new Error('Claude classify error');
   const data = await response.json();
@@ -285,21 +352,14 @@ export async function deleteTickersFromSupabase(tickers) {
 
 // ─── ANTHROPIC CLAUDE : Pre-earnings drift ───────────────────────────────────
 export async function analyzeDrift(ticker, perf30d, earningsDate) {
-  const system = `Tu es un analyste spécialisé dans le pre-earnings drift.
-Concept : ~60% des titres qui vont beater dérivent haussièrement 2-4 semaines avant publication.
-Objectif : entrer J-20 à J-15, profiter du drift, sortir avant ou après les résultats selon signal.
-
-RÈGLES DRIFT :
-- J-30 à J-25 : Identifier si base rate > 65%
-- J-20 à J-15 : ENTRER — 40% capital SI secteur momentum + driver MP positif + titre pas déjà >+10%
-- J-0 Option A : Vendre veille résultats (sécuriser drift)
-- J-0 Option B : Garder si signal earnings toujours fort
-- STOP : Si titre monte >+15% avant résultats → sortir
-- Stop loss drift : -7% | Trailing stop à +5% → break-even
-
-Capital référence : 300€ | Entrée drift : 40% = 120€
-
-Réponds en format clair : Setup VALIDE ou INVALIDE, avec raison + timing exact + stop.`;
+  const system =
+"Analyste pre-earnings drift. Réponds en format direct : setup VALIDE ou INVALIDE, raison + timing + stop.\n\n" +
+"RÈGLES DRIFT :\n" +
+"- Entrer J-20 à J-15 si base rate > 65% + secteur momentum + driver MP positif + titre < +10% sur 30J\n" +
+"- Stop si titre > +15% avant résultats\n" +
+"- Stop loss : -7% | Trailing stop : +5% => break-even\n" +
+"- Sortie option A : veille résultats | Option B : garder si signal fort\n" +
+"Capital : 300EUR | Entrée drift : 40% = 120EUR";
 
   const today = new Date();
   const earnings = new Date(earningsDate);
@@ -310,10 +370,10 @@ Réponds en format clair : Setup VALIDE ou INVALIDE, avec raison + timing exact 
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       system,
-      message: `Ticker : ${ticker}
-Performance 30J : ${perf30d !== null ? perf30d.toFixed(2) + '%' : 'non disponible'}
-Date earnings : ${earningsDate}
-Jours restants avant earnings : ${daysToEarnings}J`
+      messages: [{
+        role: 'user',
+        content: `Ticker : ${ticker}\nPerf 30J : ${perf30d !== null ? perf30d.toFixed(2) + '%' : 'non disponible'}\nDate earnings : ${earningsDate}\nJours restants : ${daysToEarnings}J`
+      }]
     }),
   });
 
