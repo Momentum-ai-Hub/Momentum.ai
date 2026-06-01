@@ -212,7 +212,7 @@ export async function getCommodityPrice(symbol) {
 
 // ─── TWELVEDATA : Variation % sur N jours ────────────────────────────────────
 export async function getCommodityChange(symbol, days = 5) {
-  const url = 'https://api.twelvedata.com/time_series?symbol=' + symbol + '&interval=1day&outputsize=' + (days + 1) + '&apikey=' + TWELVEDATA_KEY;
+  const url = 'https://api.twelvedata.com/time_series?symbol=' + symbol + '&interval=1day&outputsize=' + days + '&apikey=' + TWELVEDATA_KEY;
   const res = await fetch(url);
   if (!res.ok) return null;
   const data = await res.json();
