@@ -1,7 +1,7 @@
 // app/api/morning-edge/route.js
 // Route API Next.js — Morning Edge Engine v2
-// Map causale complète C0→C4 · Corrélations Pearson lead-lag 252j
-// Propagation causale des signaux · Cache serveur 4h
+// Clusters indexés par liste.id de MomentumModule (source de vérité)
+// Corrélations Pearson lead-lag 252 sessions · Propagation causale · Cache 4h
 
 import { NextResponse } from "next/server";
 
@@ -9,425 +9,315 @@ export const revalidate = 14400; // 4h
 
 // ─────────────────────────────────────────────────────────────────
 // LEADERS OVERNIGHT — inputs du scanner
+// sector doit correspondre aux leaderSectors de chaque cluster
 // ─────────────────────────────────────────────────────────────────
 
 const LEADERS = [
-  { symbol: "ASML",   name: "ASML",       region: "EU", sector: "semis"      },
-  { symbol: "SAP",    name: "SAP",         region: "EU", sector: "tech"       },
-  { symbol: "MC.PA",  name: "LVMH",        region: "EU", sector: "luxe"       },
-  { symbol: "SIE.DE", name: "Siemens",     region: "EU", sector: "industrie"  },
-  { symbol: "RWE.DE", name: "RWE",         region: "EU", sector: "renouvelable"},
-  { symbol: "TTE.PA", name: "TotalEnergies",region:"EU", sector: "petrole"    },
-  { symbol: "AIR.PA", name: "Airbus",      region: "EU", sector: "defense"    },
-  { symbol: "RHM.DE", name: "Rheinmetall", region: "EU", sector: "defense"    },
-  { symbol: "TSM",    name: "TSMC",        region: "AS", sector: "semis"      },
-  { symbol: "005930.KS", name: "Samsung",  region: "AS", sector: "semis"      },
-  { symbol: "6758.T", name: "Sony",        region: "AS", sector: "tech"       },
-  { symbol: "7203.T", name: "Toyota",      region: "AS", sector: "industrie"  },
-  { symbol: "BABA",   name: "Alibaba",     region: "AS", sector: "tech"       },
-  { symbol: "GLD",    name: "Or (GLD)",    region: "CM", sector: "or"         },
-  { symbol: "USO",    name: "Pétrole WTI", region: "CM", sector: "petrole"    },
-  { symbol: "CPER",   name: "Cuivre",      region: "CM", sector: "metaux"     },
-  { symbol: "GBTC",   name: "Bitcoin",     region: "CM", sector: "crypto"     },
+  { symbol: "ASML",      name: "ASML",          region: "EU", sector: "semis"       },
+  { symbol: "SAP",       name: "SAP",            region: "EU", sector: "tech"        },
+  { symbol: "MC.PA",     name: "LVMH",           region: "EU", sector: "luxe"        },
+  { symbol: "SIE.DE",    name: "Siemens",        region: "EU", sector: "industrie"   },
+  { symbol: "RWE.DE",    name: "RWE",            region: "EU", sector: "renouvelable"},
+  { symbol: "TTE.PA",    name: "TotalEnergies",  region: "EU", sector: "petrole"     },
+  { symbol: "AIR.PA",    name: "Airbus",         region: "EU", sector: "defense"     },
+  { symbol: "RHM.DE",    name: "Rheinmetall",    region: "EU", sector: "defense"     },
+  { symbol: "TSM",       name: "TSMC",           region: "AS", sector: "semis"       },
+  { symbol: "005930.KS", name: "Samsung",        region: "AS", sector: "semis"       },
+  { symbol: "6758.T",    name: "Sony",           region: "AS", sector: "tech"        },
+  { symbol: "7203.T",    name: "Toyota",         region: "AS", sector: "industrie"   },
+  { symbol: "BABA",      name: "Alibaba",        region: "AS", sector: "tech"        },
+  { symbol: "GLD",       name: "Or (GLD)",       region: "CM", sector: "or"          },
+  { symbol: "USO",       name: "Pétrole WTI",    region: "CM", sector: "petrole"     },
+  { symbol: "CPER",      name: "Cuivre",         region: "CM", sector: "metaux"      },
+  { symbol: "GBTC",      name: "Bitcoin",        region: "CM", sector: "crypto"      },
 ];
 
 // ─────────────────────────────────────────────────────────────────
-// MAP CAUSALE COMPLÈTE C0→C4
-// Chaque cluster a : id, label, layer, leaderSectors, tickers, causalFrom[]
+// CLUSTERS — ids identiques aux liste.id de MomentumModule/COUCHES
+// leaderSectors = secteurs des leaders overnight qui alimentent ce cluster
+// causalFrom = [liste.id, ...] depuis LIENS_CAUSAUX de MomentumModule
+// proxy = ETF pour les corrélations historiques Twelve Data
 // ─────────────────────────────────────────────────────────────────
 
 const CLUSTERS = [
-  // ── C0 GÉOPOLITIQUE ──────────────────────────────────────────
+  // C0
   {
-    id: "geopolitique",
-    label: "Rebond Post-Guerre",
-    layer: "C0",
-    emoji: "🌍",
+    id: "rebond-iran",
+    coucheId: "C0",
     leaderSectors: ["defense", "industrie", "petrole"],
-    tickers: ["AIR", "RMS", "RTX", "LMT", "BA", "HO", "AVAV", "RHM", "NOC", "GD"],
     causalFrom: [],
+    proxy: "ITA",
   },
-
-  // ── C1 TERRE ─────────────────────────────────────────────────
+  // C1
   {
-    id: "mp_or",
-    label: "MP Or // Précieux",
-    layer: "C1",
-    emoji: "🥇",
+    id: "mp-or",
+    coucheId: "C1",
     leaderSectors: ["or", "metaux"],
-    tickers: ["FNV", "GOLD", "GDX", "AEM", "WPM", "NEM"],
     causalFrom: [],
+    proxy: "GLD",
   },
   {
-    id: "mp_lithium",
-    label: "MP Lithium // Batteries",
-    layer: "C1",
-    emoji: "⚡",
+    id: "mp-lithium",
+    coucheId: "C1",
     leaderSectors: ["metaux", "semis"],
-    tickers: ["LAC", "ALB", "SQM", "SGML", "LIT"],
     causalFrom: [],
+    proxy: "LIT",
   },
   {
-    id: "mp_terres_rares",
-    label: "MP Terres Rares",
-    layer: "C1",
-    emoji: "🧲",
+    id: "mp-terres-rares",
+    coucheId: "C1",
     leaderSectors: ["metaux", "industrie"],
-    tickers: ["MP", "USAR", "LYC", "CRML"],
     causalFrom: [],
+    proxy: "REMX",
   },
   {
-    id: "mp_mines",
-    label: "MP Mines // Métaux Base",
-    layer: "C1",
-    emoji: "⛏",
+    id: "mp-mines",
+    coucheId: "C1",
     leaderSectors: ["metaux", "petrole"],
-    tickers: ["FCX", "RIO", "BHP", "GLEN", "CLF"],
     causalFrom: [],
+    proxy: "XME",
   },
   {
-    id: "nrj_petrole",
-    label: "NRJ Pétrole // Gaz",
-    layer: "C1",
-    emoji: "🛢",
+    id: "nrj-petrole",
+    coucheId: "C1",
     leaderSectors: ["petrole"],
-    tickers: ["TTE", "EQNR", "ENI", "SLB", "HAL", "BKR"],
     causalFrom: [],
+    proxy: "XLE",
   },
-
-  // ── C2 ÉNERGIE ───────────────────────────────────────────────
+  // C2
   {
-    id: "nrj_nucleaire",
-    label: "NRJ Nucléaire",
-    layer: "C2",
-    emoji: "☢",
+    id: "nrj-nucleaire",
+    coucheId: "C2",
     leaderSectors: ["renouvelable", "industrie"],
-    tickers: ["CCJ", "UUUU", "OKLO", "SMR", "NNE", "BWXT", "LEU", "NXE"],
-    causalFrom: ["mp_lithium"],
+    causalFrom: ["mp-lithium"],
+    proxy: "URA",
   },
   {
-    id: "nrj_renouvelable",
-    label: "NRJ Renouvelable",
-    layer: "C2",
-    emoji: "🌿",
+    id: "nrj-renouvelable",
+    coucheId: "C2",
     leaderSectors: ["renouvelable", "metaux"],
-    tickers: ["RWE", "GEV", "ETN", "ENPH", "SEDG", "BE", "PLUG", "FCEL"],
-    causalFrom: ["mp_terres_rares"],
+    causalFrom: ["mp-terres-rares"],
+    proxy: "ICLN",
   },
   {
-    id: "nrj_chimie",
-    label: "NRJ Chimie // Matériaux",
-    layer: "C2",
-    emoji: "🧪",
+    id: "nrj-chimie",
+    coucheId: "C2",
     leaderSectors: ["petrole", "metaux"],
-    tickers: ["LIN", "APD", "NTR", "ASY", "BAYN", "HWKN"],
-    causalFrom: ["nrj_petrole"],
+    causalFrom: ["nrj-petrole"],
+    proxy: "XLB",
   },
   {
-    id: "ia_energie",
-    label: "IA x Energie",
-    layer: "C2",
-    emoji: "⚡",
+    id: "ia-energie",
+    coucheId: "C2",
     leaderSectors: ["semis", "renouvelable", "industrie", "tech"],
-    tickers: ["VST", "CEG", "NRG", "VRT", "GEV", "ETN", "CCJ", "PWR", "KMI"],
-    causalFrom: ["mp_terres_rares", "mp_lithium"],
-    isIAChain: true,
+    causalFrom: ["mp-terres-rares", "mp-lithium"],
+    proxy: "XLE",
   },
-
-  // ── C2.5 INFRASTRUCTURE ──────────────────────────────────────
+  // C2.5
   {
-    id: "infra_construction",
-    label: "Infra x Construction",
-    layer: "C2.5",
-    emoji: "🏗",
+    id: "infra-construction",
+    coucheId: "C2.5",
     leaderSectors: ["industrie", "renouvelable"],
-    tickers: ["SIE", "WM", "PWR", "FLR", "KBR", "IEX"],
-    causalFrom: ["nrj_nucleaire", "nrj_renouvelable"],
+    causalFrom: ["nrj-nucleaire", "nrj-renouvelable"],
+    proxy: "XLI",
   },
   {
-    id: "ia_infra_hardware",
-    label: "IA Infra x Hardware",
-    layer: "C2.5",
-    emoji: "🖥",
+    id: "ia-infra-hardware",
+    coucheId: "C2.5",
     leaderSectors: ["semis", "tech"],
-    tickers: ["VRT", "SMCI", "HPE", "AVGO", "CSCO", "FFIV"],
-    causalFrom: ["ia_energie"],
-    isIAChain: true,
+    causalFrom: ["ia-energie"],
+    proxy: "IGV",
   },
   {
-    id: "ia_infra_cloud",
-    label: "IA Infra x Cloud",
-    layer: "C2.5",
-    emoji: "☁",
+    id: "ia-infra-cloud",
+    coucheId: "C2.5",
     leaderSectors: ["tech", "semis"],
-    tickers: ["AMZN", "GOOGL", "MSFT", "ORCL", "NOW", "CRM", "DDOG"],
-    causalFrom: ["ia_energie"],
-    isIAChain: true,
+    causalFrom: ["ia-energie"],
+    proxy: "QQQ",
   },
   {
-    id: "ia_telecom_optique",
-    label: "IA Telecom // Optique",
-    layer: "C2.5",
-    emoji: "📡",
+    id: "ia-telecom-optique",
+    coucheId: "C2.5",
     leaderSectors: ["semis", "tech"],
-    tickers: ["COHR", "GLW", "LITE", "AAOI", "NOK", "AXTI"],
-    causalFrom: ["ia_energie"],
-    isIAChain: true,
+    causalFrom: ["ia-energie"],
+    proxy: "IYZ",
   },
-
-  // ── C3 FABRICATION ───────────────────────────────────────────
+  // C3
   {
-    id: "defense",
-    label: "Défense x Aérospatiale",
-    layer: "C3",
-    emoji: "🛡",
-    leaderSectors: ["defense", "industrie"],
-    tickers: ["RTX", "LMT", "NOC", "GD", "AXON", "BA", "AVAV", "KTOS"],
-    causalFrom: ["infra_construction", "geopolitique"],
-  },
-  {
-    id: "semi_equipement",
-    label: "Semi C.Appro Équipement",
-    layer: "C3",
-    emoji: "🔬",
+    id: "semi-equipement",
+    coucheId: "C3",
     leaderSectors: ["semis"],
-    tickers: ["AMAT", "LRCX", "KLAC", "ASML", "AEHR", "ASM"],
-    causalFrom: ["ia_infra_hardware"],
-    isIAChain: true,
+    causalFrom: ["ia-infra-hardware"],
+    proxy: "SOXX",
   },
   {
-    id: "semi_design",
-    label: "Semi C.Appro Design",
-    layer: "C3",
-    emoji: "📐",
+    id: "semi-design",
+    coucheId: "C3",
     leaderSectors: ["semis", "tech"],
-    tickers: ["SNPS", "CDNS", "ARM", "MRVL", "ALAB", "RMBS"],
-    causalFrom: ["semi_equipement"],
-    isIAChain: true,
+    causalFrom: ["semi-equipement"],
+    proxy: "SOXX",
   },
   {
-    id: "semi_fabrication",
-    label: "Semi C.Appro Fabrication",
-    layer: "C3",
-    emoji: "🏭",
+    id: "semi-fabrication",
+    coucheId: "C3",
     leaderSectors: ["semis"],
-    tickers: ["TSM", "SMCI", "TSEM", "TTMI", "SOI"],
-    causalFrom: ["ia_infra_cloud", "semi_design"],
-    isIAChain: true,
+    causalFrom: ["ia-infra-cloud", "semi-design"],
+    proxy: "SOXX",
   },
   {
-    id: "ia_memoire",
-    label: "IA x Mémoire // Stockage",
-    layer: "C3",
-    emoji: "💾",
+    id: "ia-memoire",
+    coucheId: "C3",
     leaderSectors: ["semis", "tech"],
-    tickers: ["MU", "WDC", "STX", "NTAP", "DELL", "SNDK"],
-    causalFrom: ["semi_fabrication"],
-    isIAChain: true,
+    causalFrom: ["semi-fabrication"],
+    proxy: "SMH",
   },
   {
-    id: "ia_photonique",
-    label: "IA x Photonique",
-    layer: "C3",
-    emoji: "💡",
+    id: "ia-photonique",
+    coucheId: "C3",
     leaderSectors: ["semis"],
-    tickers: ["COHR", "AIXA", "HIMX", "AMS", "POET", "IQE"],
-    causalFrom: ["ia_memoire"],
-    isIAChain: true,
+    causalFrom: ["ia-memoire"],
+    proxy: "SMH",
   },
   {
-    id: "ia_semi_general",
-    label: "IA x Semi Général",
-    layer: "C3",
-    emoji: "🧠",
+    id: "ia-semi-general",
+    coucheId: "C3",
     leaderSectors: ["semis", "tech"],
-    tickers: ["NVDA", "AMD", "INTC", "QCOM", "TXN", "ON", "AVGO"],
-    causalFrom: ["ia_photonique"],
-    isIAChain: true,
+    causalFrom: ["ia-photonique"],
+    proxy: "SMH",
   },
   {
-    id: "ia_software_quantique",
-    label: "IA Software // Quantique",
-    layer: "C3",
-    emoji: "⚛",
+    id: "ia-software-quantique",
+    coucheId: "C3",
     leaderSectors: ["tech", "semis"],
-    tickers: ["IBM", "IONQ", "QBTS", "RGTI", "QUBT", "APP"],
-    causalFrom: ["ia_semi_general"],
-    isIAChain: true,
+    causalFrom: ["ia-semi-general"],
+    proxy: "IGV",
   },
   {
-    id: "ia_robotique",
-    label: "IA x Robotique Chaîne",
-    layer: "C3",
-    emoji: "🤖",
+    id: "ia-robotique",
+    coucheId: "C3",
     leaderSectors: ["semis", "industrie"],
-    tickers: ["TSLA", "CGNX", "ROK", "PH", "RRX", "IRDM"],
-    causalFrom: ["ia_semi_general"],
-    isIAChain: true,
+    causalFrom: ["ia-software-quantique"],
+    proxy: "BOTZ",
   },
   {
     id: "spacex",
-    label: "SpaceX x Chaîne appro",
-    layer: "C3",
-    emoji: "🚀",
+    coucheId: "C3",
     leaderSectors: ["defense", "tech"],
-    tickers: ["RKLB", "MNTS", "ASTS", "PL", "LUNR", "SATL"],
     causalFrom: ["defense"],
+    proxy: "UFO",
   },
-
-  // ── C4 HUMAIN ────────────────────────────────────────────────
+  {
+    id: "defense",
+    coucheId: "C3",
+    leaderSectors: ["defense", "industrie"],
+    causalFrom: ["infra-construction", "rebond-iran"],
+    proxy: "ITA",
+  },
+  // C4
   {
     id: "luxe",
-    label: "Luxe x Conso Premium",
-    layer: "C4",
-    emoji: "💎",
+    coucheId: "C4",
     leaderSectors: ["luxe", "tech"],
-    tickers: ["MC", "RMS", "BIRK", "LVMHF", "AD"],
     causalFrom: [],
+    proxy: "XLY",
   },
   {
-    id: "finance_crypto",
-    label: "Finance x Crypto",
-    layer: "C4",
-    emoji: "₿",
+    id: "finance-crypto",
+    coucheId: "C4",
     leaderSectors: ["crypto", "tech"],
-    tickers: ["HUT", "MSTR", "COIN", "CLSK", "RIOT"],
     causalFrom: [],
+    proxy: "GBTC",
   },
   {
-    id: "finance_fintech",
-    label: "Finance x Fintech",
-    layer: "C4",
-    emoji: "💳",
+    id: "finance-fintech",
+    coucheId: "C4",
     leaderSectors: ["tech", "luxe"],
-    tickers: ["V", "MA", "GS", "BX", "BLK", "ICE", "FUTU"],
-    causalFrom: ["ia_robotique"],
-    isIAChain: true,
+    causalFrom: ["ia-robotique"],
+    proxy: "XLF",
   },
   {
     id: "biotech",
-    label: "BioTech x MidTech",
-    layer: "C4",
-    emoji: "🧬",
+    coucheId: "C4",
     leaderSectors: ["tech"],
-    tickers: ["ILMN", "MEDCL", "NANO"],
     causalFrom: [],
+    proxy: "XBI",
   },
   {
     id: "healthcare",
-    label: "Healthcare",
-    layer: "C4",
-    emoji: "🏥",
+    coucheId: "C4",
     leaderSectors: ["industrie"],
-    tickers: ["HROW", "HURN", "AORT"],
     causalFrom: [],
+    proxy: "XLV",
   },
   {
     id: "japon",
-    label: "Japon Potentiel",
-    layer: "C4",
-    emoji: "🗾",
+    coucheId: "C4",
     leaderSectors: ["semis", "industrie"],
-    tickers: ["6920", "5803", "7011", "6146", "3436"],
     causalFrom: [],
+    proxy: "EWJ",
   },
   {
-    id: "aschenbenner",
-    label: "13F AschenBenner",
-    layer: "C4",
-    emoji: "📊",
+    id: "13f-aschenbenner",
+    coucheId: "C4",
     leaderSectors: ["semis", "tech", "crypto"],
-    tickers: ["NVDA", "TSM", "ORCL", "MU", "AVGO", "ASML", "GLW", "CRWV"],
-    causalFrom: ["ia_semi_general"],
-    isIAChain: true,
+    causalFrom: ["ia-semi-general"],
+    proxy: "SMH",
   },
 ];
 
 // ─────────────────────────────────────────────────────────────────
-// PROXY ETF pour les corrélations historiques
-// On mappe chaque cluster sur un ETF proxy tradable
+// ORDRE DE SCORING — C0 en premier pour que la propagation causale
+// soit disponible quand on score les couches suivantes
 // ─────────────────────────────────────────────────────────────────
 
-const CLUSTER_PROXY = {
-  geopolitique:          "ITA",   // iShares Defense & Aerospace
-  mp_or:                 "GLD",
-  mp_lithium:            "LIT",
-  mp_terres_rares:       "REMX",
-  mp_mines:              "XME",
-  nrj_petrole:           "XLE",
-  nrj_nucleaire:         "URA",
-  nrj_renouvelable:      "ICLN",
-  nrj_chimie:            "XLB",
-  ia_energie:            "XLE",
-  infra_construction:    "XLI",
-  ia_infra_hardware:     "IGV",
-  ia_infra_cloud:        "QQQ",
-  ia_telecom_optique:    "IYZ",
-  defense:               "ITA",
-  semi_equipement:       "SOXX",
-  semi_design:           "SOXX",
-  semi_fabrication:      "SOXX",
-  ia_memoire:            "SMH",
-  ia_photonique:         "SMH",
-  ia_semi_general:       "SMH",
-  ia_software_quantique: "IGV",
-  ia_robotique:          "BOTZ",
-  spacex:                "UFO",
-  luxe:                  "XLY",
-  finance_crypto:        "GBTC",
-  finance_fintech:       "XLF",
-  biotech:               "XBI",
-  healthcare:            "XLV",
-  japon:                 "EWJ",
-  aschenbenner:          "SMH",
-};
+const LAYER_ORDER = ["C0", "C1", "C2", "C2.5", "C3", "C4"];
 
 // ─────────────────────────────────────────────────────────────────
 // TWELVE DATA — Historique daily returns (cache 4h)
 // ─────────────────────────────────────────────────────────────────
 
-async function fetchDailyReturns(symbol, outputsize = 260) {
-  const apiKey = process.env.TWELVEDATA_KEY;
-  const url =
+async function fetchDailyReturns(symbol, outputsize) {
+  var size   = outputsize || 260;
+  var apiKey = process.env.TWELVEDATA_KEY;
+  var url    =
     "https://api.twelvedata.com/time_series?symbol=" +
     encodeURIComponent(symbol) +
     "&interval=1day&outputsize=" +
-    outputsize +
+    size +
     "&apikey=" +
     apiKey;
 
   try {
-    const res = await fetch(url, { next: { revalidate: 14400 } });
-    const data = await res.json();
+    var res  = await fetch(url, { next: { revalidate: 14400 } });
+    var data = await res.json();
     if (!data.values || data.status === "error") return null;
 
-    const values = [...data.values].reverse();
-    const returns = [];
-    for (let i = 1; i < values.length; i++) {
-      const prev = parseFloat(values[i - 1].close);
-      const curr = parseFloat(values[i].close);
+    var values  = [...data.values].reverse();
+    var returns = [];
+    for (var i = 1; i < values.length; i++) {
+      var prev = parseFloat(values[i - 1].close);
+      var curr = parseFloat(values[i].close);
       if (prev > 0) returns.push((curr - prev) / prev);
     }
     return returns;
-  } catch {
+  } catch (e) {
     return null;
   }
 }
 
 // ─────────────────────────────────────────────────────────────────
-// TWELVE DATA — Quotes temps réel
+// TWELVE DATA — Quotes temps réel (no-cache)
 // ─────────────────────────────────────────────────────────────────
 
 async function fetchQuotes(symbols) {
-  const apiKey = process.env.TWELVEDATA_KEY;
-  const joined = symbols.map(encodeURIComponent).join(",");
-  const url =
-    "https://api.twelvedata.com/quote?symbol=" + joined + "&apikey=" + apiKey;
+  var apiKey = process.env.TWELVEDATA_KEY;
+  var joined = symbols.map(encodeURIComponent).join(",");
+  var url    = "https://api.twelvedata.com/quote?symbol=" + joined + "&apikey=" + apiKey;
 
   try {
-    const res = await fetch(url, { cache: "no-store" });
+    var res = await fetch(url, { cache: "no-store" });
     return await res.json();
-  } catch {
+  } catch (e) {
     return {};
   }
 }
@@ -437,25 +327,25 @@ async function fetchQuotes(symbols) {
 // ─────────────────────────────────────────────────────────────────
 
 function pearson(x, y) {
-  const n = Math.min(x.length, y.length);
-  if (n < 30) return { corr: 0, n };
+  var n = Math.min(x.length, y.length);
+  if (n < 30) return { corr: 0, n: n };
 
-  const xs = x.slice(0, n);
-  const ys = y.slice(0, n);
-  const mx = xs.reduce((a, b) => a + b, 0) / n;
-  const my = ys.reduce((a, b) => a + b, 0) / n;
+  var xs = x.slice(0, n);
+  var ys = y.slice(0, n);
+  var mx = xs.reduce(function(a, b) { return a + b; }, 0) / n;
+  var my = ys.reduce(function(a, b) { return a + b; }, 0) / n;
 
-  let num = 0, dx2 = 0, dy2 = 0;
-  for (let i = 0; i < n; i++) {
-    const dx = xs[i] - mx;
-    const dy = ys[i] - my;
+  var num = 0, dx2 = 0, dy2 = 0;
+  for (var i = 0; i < n; i++) {
+    var dx = xs[i] - mx;
+    var dy = ys[i] - my;
     num += dx * dy;
     dx2 += dx * dx;
     dy2 += dy * dy;
   }
 
-  const corr = num / Math.sqrt(dx2 * dy2);
-  return { corr: isNaN(corr) ? 0 : corr, n };
+  var corr = num / Math.sqrt(dx2 * dy2);
+  return { corr: isNaN(corr) ? 0 : corr, n: n };
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -463,8 +353,8 @@ function pearson(x, y) {
 // ─────────────────────────────────────────────────────────────────
 
 function leadLag(leaderReturns, followerReturns) {
-  const leaderLagged    = leaderReturns.slice(0, -1);
-  const followerShifted = followerReturns.slice(1);
+  var leaderLagged    = leaderReturns.slice(0, -1);
+  var followerShifted = followerReturns.slice(1);
   return pearson(leaderLagged, followerShifted);
 }
 
@@ -472,64 +362,62 @@ function leadLag(leaderReturns, followerReturns) {
 // MATH — Hit rate conditionnel
 // ─────────────────────────────────────────────────────────────────
 
-function conditionalStats(leaderReturns, followerReturns, threshold = 0.003) {
-  const n = Math.min(leaderReturns.length - 1, followerReturns.length - 1);
-  const hits = [];
-  const bullFollows = [];
-  const bearFollows = [];
+function conditionalStats(leaderReturns, followerReturns, threshold) {
+  var thr  = threshold || 0.003;
+  var n    = Math.min(leaderReturns.length - 1, followerReturns.length - 1);
+  var hits = [];
+  var bullFollows = [];
+  var bearFollows = [];
 
-  for (let i = 0; i < n; i++) {
-    if (Math.abs(leaderReturns[i]) < threshold) continue;
-    const sameDir =
-      Math.sign(leaderReturns[i]) === Math.sign(followerReturns[i + 1]);
+  for (var i = 0; i < n; i++) {
+    if (Math.abs(leaderReturns[i]) < thr) continue;
+    var sameDir = Math.sign(leaderReturns[i]) === Math.sign(followerReturns[i + 1]);
     hits.push(sameDir ? 1 : 0);
-    if (leaderReturns[i] > threshold)  bullFollows.push(followerReturns[i + 1]);
-    if (leaderReturns[i] < -threshold) bearFollows.push(followerReturns[i + 1]);
+    if (leaderReturns[i] > thr)  bullFollows.push(followerReturns[i + 1]);
+    if (leaderReturns[i] < -thr) bearFollows.push(followerReturns[i + 1]);
   }
 
-  const hitRate =
-    hits.length > 0
-      ? hits.reduce((a, b) => a + b, 0) / hits.length
-      : 0.5;
-  const avgBull =
-    bullFollows.length > 3
-      ? bullFollows.reduce((a, b) => a + b, 0) / bullFollows.length
-      : null;
-  const avgBear =
-    bearFollows.length > 3
-      ? bearFollows.reduce((a, b) => a + b, 0) / bearFollows.length
-      : null;
+  var hitRate = hits.length > 0
+    ? hits.reduce(function(a, b) { return a + b; }, 0) / hits.length
+    : 0.5;
+  var avgBull = bullFollows.length > 3
+    ? bullFollows.reduce(function(a, b) { return a + b; }, 0) / bullFollows.length
+    : null;
+  var avgBear = bearFollows.length > 3
+    ? bearFollows.reduce(function(a, b) { return a + b; }, 0) / bearFollows.length
+    : null;
 
-  return { hitRate, avgBull, avgBear, nCond: hits.length };
+  return { hitRate: hitRate, avgBull: avgBull, avgBear: avgBear, nCond: hits.length };
 }
 
 // ─────────────────────────────────────────────────────────────────
-// MOTEUR — Score Bayésien par cluster (direct + propagation causale)
+// MOTEUR — Score Bayésien par cluster
+// clusterScores = résultats déjà calculés pour les couches précédentes
 // ─────────────────────────────────────────────────────────────────
 
 function scoreCluster(cluster, leaderData, corrMatrix, clusterScores) {
-  const BASE_RATE = 0.52;
-  let logOdds = Math.log(BASE_RATE / (1 - BASE_RATE));
+  var BASE_RATE = 0.52;
+  var logOdds   = Math.log(BASE_RATE / (1 - BASE_RATE));
 
-  const activeSignals = [];
+  var activeSignals = [];
 
   // 1. Signaux directs depuis les leaders overnight
-  for (const leader of leaderData) {
-    if (!cluster.leaderSectors.includes(leader.sector)) continue;
+  for (var i = 0; i < leaderData.length; i++) {
+    var leader = leaderData[i];
+    if (cluster.leaderSectors.indexOf(leader.sector) === -1) continue;
     if (leader.changePct === null || Math.abs(leader.changePct) < 0.003) continue;
 
-    const key = leader.symbol + "__" + cluster.id;
-    const c = corrMatrix[key];
+    var key = leader.symbol + "__" + cluster.id;
+    var c   = corrMatrix[key];
     if (!c || Math.abs(c.corr) < 0.20 || c.n < 30) continue;
 
-    const direction  = leader.changePct > 0 ? 1 : -1;
-    const magnitude  = Math.min(Math.abs(leader.changePct) / 0.01, 3);
-    const edge       = c.corr * direction * magnitude * 0.28;
+    var direction  = leader.changePct > 0 ? 1 : -1;
+    var magnitude  = Math.min(Math.abs(leader.changePct) / 0.01, 3);
+    var edge       = c.corr * direction * magnitude * 0.28;
     logOdds += edge;
 
-    const absCorr = Math.abs(c.corr);
-    const quality =
-      absCorr >= 0.65 ? "fort" : absCorr >= 0.45 ? "modéré" : "faible";
+    var absCorr = Math.abs(c.corr);
+    var quality = absCorr >= 0.65 ? "fort" : absCorr >= 0.45 ? "modéré" : "faible";
 
     activeSignals.push({
       leader:       leader.name,
@@ -541,69 +429,62 @@ function scoreCluster(cluster, leaderData, corrMatrix, clusterScores) {
       avgBull:      c.avgBull,
       avgBear:      c.avgBear,
       n:            c.n,
-      quality,
+      quality:      quality,
       contribution: edge,
       source:       "direct",
     });
   }
 
-  // 2. Propagation causale depuis les clusters parents
-  if (cluster.causalFrom && cluster.causalFrom.length > 0) {
-    for (const parentId of cluster.causalFrom) {
-      const parent = clusterScores[parentId];
-      if (!parent) continue;
-      // Propagation atténuée à 40% du signal parent
-      const parentLogOdds = Math.log(parent.probability / (1 - parent.probability));
-      const attenuated = parentLogOdds * 0.4;
-      logOdds += attenuated;
+  // 2. Propagation causale depuis les clusters parents déjà scorés
+  for (var j = 0; j < cluster.causalFrom.length; j++) {
+    var parentId = cluster.causalFrom[j];
+    var parent   = clusterScores[parentId];
+    if (!parent) continue;
 
-      if (Math.abs(parent.probability - 0.5) > 0.08) {
-        activeSignals.push({
-          leader:       parent.label,
-          symbol:       parentId,
-          region:       parent.layer,
-          changePct:    parent.probability - 0.5,
-          corr:         0.4,
-          hitRate:      null,
-          quality:      "modéré",
-          contribution: attenuated,
-          source:       "causal",
-        });
-      }
+    var parentLogOdds = Math.log(parent.probability / (1 - parent.probability));
+    var attenuated    = parentLogOdds * 0.4; // atténuation 40%
+    logOdds += attenuated;
+
+    if (Math.abs(parent.probability - 0.5) > 0.08) {
+      activeSignals.push({
+        leader:       parent.label || parentId,
+        symbol:       parentId,
+        region:       parent.coucheId || "causal",
+        changePct:    parent.probability - 0.5,
+        corr:         0.4,
+        hitRate:      null,
+        quality:      "modéré",
+        contribution: attenuated,
+        source:       "causal",
+      });
     }
   }
 
-  const probability = 1 / (1 + Math.exp(-logOdds));
-  const avgCorr =
-    activeSignals.length > 0
-      ? activeSignals.reduce((a, s) => a + Math.abs(s.corr), 0) /
-        activeSignals.length
-      : 0;
-  const confidence = Math.min(
-    Math.round((activeSignals.length / 3) * avgCorr * 3),
-    3
-  );
+  var probability = 1 / (1 + Math.exp(-logOdds));
 
-  const direction =
+  var totalCorr = 0;
+  for (var k = 0; k < activeSignals.length; k++) {
+    totalCorr += Math.abs(activeSignals[k].corr);
+  }
+  var avgCorr    = activeSignals.length > 0 ? totalCorr / activeSignals.length : 0;
+  var confidence = Math.min(Math.round((activeSignals.length / 3) * avgCorr * 3), 3);
+
+  var direction =
     probability >= 0.60 ? "haussier"
     : probability <= 0.42 ? "baissier"
     : "neutre";
 
+  activeSignals.sort(function(a, b) { return Math.abs(b.corr) - Math.abs(a.corr); });
+
   return {
     clusterId:   cluster.id,
-    label:       cluster.label,
-    layer:       cluster.layer,
-    emoji:       cluster.emoji,
-    tickers:     cluster.tickers,
+    coucheId:    cluster.coucheId,
     causalFrom:  cluster.causalFrom,
-    isIAChain:   cluster.isIAChain || false,
-    probability,
-    direction,
-    confidence,
+    probability: probability,
+    direction:   direction,
+    confidence:  confidence,
     signalCount: activeSignals.length,
-    signals:     activeSignals.sort(
-      (a, b) => Math.abs(b.corr) - Math.abs(a.corr)
-    ),
+    signals:     activeSignals,
   };
 }
 
@@ -614,95 +495,99 @@ function scoreCluster(cluster, leaderData, corrMatrix, clusterScores) {
 export async function GET() {
   try {
     // 1. Fetch historiques leaders (cache 4h)
-    const leaderHistorical = {};
+    var leaderHistorical = {};
     await Promise.all(
-      LEADERS.map(async ({ symbol }) => {
-        const r = await fetchDailyReturns(symbol, 260);
-        if (r && r.length >= 30) leaderHistorical[symbol] = r;
+      LEADERS.map(async function(leader) {
+        var r = await fetchDailyReturns(leader.symbol, 260);
+        if (r && r.length >= 30) leaderHistorical[leader.symbol] = r;
       })
     );
 
-    // 2. Fetch historiques proxies clusters (cache 4h, dédupliqués)
-    const proxySymbols = [...new Set(Object.values(CLUSTER_PROXY))];
-    const proxyHistorical = {};
+    // 2. Fetch historiques proxies clusters (dédupliqués, cache 4h)
+    var proxySymbols = [];
+    CLUSTERS.forEach(function(c) {
+      if (proxySymbols.indexOf(c.proxy) === -1) proxySymbols.push(c.proxy);
+    });
+
+    var proxyHistorical = {};
     await Promise.all(
-      proxySymbols.map(async (sym) => {
-        const r = await fetchDailyReturns(sym, 260);
+      proxySymbols.map(async function(sym) {
+        var r = await fetchDailyReturns(sym, 260);
         if (r && r.length >= 30) proxyHistorical[sym] = r;
       })
     );
 
     // 3. Matrice de corrélations lead-lag
-    const corrMatrix = {};
-    for (const leader of LEADERS) {
-      const lr = leaderHistorical[leader.symbol];
+    var corrMatrix = {};
+    for (var li = 0; li < LEADERS.length; li++) {
+      var leader = LEADERS[li];
+      var lr     = leaderHistorical[leader.symbol];
       if (!lr) continue;
-      for (const cluster of CLUSTERS) {
-        const proxy = CLUSTER_PROXY[cluster.id];
-        const fr = proxyHistorical[proxy];
+      for (var ci = 0; ci < CLUSTERS.length; ci++) {
+        var cluster = CLUSTERS[ci];
+        var fr      = proxyHistorical[cluster.proxy];
         if (!fr) continue;
-        const { corr, n } = leadLag(lr, fr);
-        const { hitRate, avgBull, avgBear, nCond } = conditionalStats(lr, fr);
+        var ll    = leadLag(lr, fr);
+        var stats = conditionalStats(lr, fr);
         corrMatrix[leader.symbol + "__" + cluster.id] = {
-          corr, n, hitRate, avgBull, avgBear, nCond,
+          corr:    ll.corr,
+          n:       ll.n,
+          hitRate: stats.hitRate,
+          avgBull: stats.avgBull,
+          avgBear: stats.avgBear,
+          nCond:   stats.nCond,
         };
       }
     }
 
-    // 4. Quotes temps réel
-    const leaderSymbols = LEADERS.map((l) => l.symbol);
-    const quotes = await fetchQuotes(leaderSymbols);
+    // 4. Quotes temps réel leaders
+    var leaderSymbols = LEADERS.map(function(l) { return l.symbol; });
+    var quotes        = await fetchQuotes(leaderSymbols);
 
-    const leaderData = LEADERS.map((leader) => {
-      const q =
-        quotes[leader.symbol] ||
-        (leaderSymbols.length === 1 ? quotes : null);
-      const changePct = q?.percent_change
-        ? parseFloat(q.percent_change) / 100
-        : null;
-      return {
-        ...leader,
-        changePct,
-        price: q?.close ? parseFloat(q.close) : null,
+    var leaderData = LEADERS.map(function(leader) {
+      var q         = quotes[leader.symbol] || (leaderSymbols.length === 1 ? quotes : null);
+      var changePct = q && q.percent_change ? parseFloat(q.percent_change) / 100 : null;
+      return Object.assign({}, leader, {
+        changePct: changePct,
+        price:     q && q.close ? parseFloat(q.close) : null,
         available: changePct !== null,
-      };
+      });
     });
 
-    const available = leaderData.filter((l) => l.available);
+    var available = leaderData.filter(function(l) { return l.available; });
 
-    // 5. Score clusters dans l'ordre causal (C0 → C4)
-    // On score d'abord les clusters sans parents, puis on propage
-    const layerOrder = ["C0", "C1", "C2", "C2.5", "C3", "C4"];
-    const clusterScores = {};
+    // 5. Score clusters dans l'ordre causal C0→C4
+    // Les parents sont dans clusterScores avant que les enfants soient scorés
+    var clusterScores = {};
 
-    for (const layer of layerOrder) {
-      const layerClusters = CLUSTERS.filter((c) => c.layer === layer);
-      for (const cluster of layerClusters) {
-        clusterScores[cluster.id] = scoreCluster(
-          cluster,
-          available,
-          corrMatrix,
-          clusterScores
-        );
+    for (var layerIdx = 0; layerIdx < LAYER_ORDER.length; layerIdx++) {
+      var layerId         = LAYER_ORDER[layerIdx];
+      var layerClusters   = CLUSTERS.filter(function(c) { return c.coucheId === layerId; });
+
+      for (var sci = 0; sci < layerClusters.length; sci++) {
+        var scored = scoreCluster(layerClusters[sci], available, corrMatrix, clusterScores);
+        clusterScores[layerClusters[sci].id] = scored;
       }
     }
 
-    const clusters = Object.values(clusterScores);
+    var clusters = Object.values(clusterScores);
 
     return NextResponse.json({
       success:    true,
       computedAt: new Date().toISOString(),
       leaders:    leaderData,
-      clusters,
+      clusters:   clusters,
       meta: {
         lookbackDays:      252,
         leadersAvailable:  available.length,
         totalLeaders:      LEADERS.length,
         totalClusters:     clusters.length,
         corrPairsComputed: Object.keys(corrMatrix).length,
-        layerOrder,
+        layerOrder:        LAYER_ORDER,
+        note:              "clusterId = liste.id de MomentumModule/COUCHES",
       },
     });
+
   } catch (error) {
     console.error("[Morning Edge v2] Error:", error);
     return NextResponse.json(
