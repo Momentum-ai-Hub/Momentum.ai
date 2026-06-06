@@ -1,7 +1,7 @@
 // app/api/morning-edge/route.js
 // Route API Next.js — Morning Edge Engine v2
 // Clusters indexés par liste.id de MomentumModule (source de vérité)
-// Corrélations Pearson lead-lag 252 sessions · Propagation causale · Cache 4h
+// Corrélations Pearson lead-lag 252 sessions · Propagation causale · Cache 4h 
 
 import { NextResponse } from "next/server";
 
