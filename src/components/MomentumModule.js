@@ -1,6 +1,6 @@
 'use client';
-import { useState, useEffect, useRef } from 'react';
-import { classifyTicker, classifyBatch, saveTickersToSupabase, loadPortfolioFromSupabase } from '../lib/api';
+import { useState, useEffect } from 'react';
+import { classifyTicker, classifyBatch, saveTickersToSupabase, loadPortfolioFromSupabase, getCouchesData } from '../lib/api';
 
 // ─── FAMILLES ─────────────────────────────────────────────────────────────────
 const FAMILLES = {
@@ -38,146 +38,6 @@ const TYPE_COLOR = {
 
 const PERIODS = ['1J','1S','1M','1A'];
 const PERIOD_KEY = { '1J':'change_1d','1S':'change_1w','1M':'change_1m','1A':'change_1y' };
-
-// ─── ARCHITECTURE CAUSALE C0→C4 ───────────────────────────────────────────────
-const COUCHES = [
-  {
-    id: 'C0',
-    label: 'C0 · GÉOPOLITIQUE',
-    color: '#f85149',
-    bgColor: 'rgba(248,81,73,0.06)',
-    listes: [
-      { id: 'rebond-iran', nom: 'Rebond Iran', isIA: false,
-        tickers: ['AIR','MC','RMS','RTX','HO','BKNG','STLA','LDO','NKE','UAL','AMZN','F','BA','LMT','LUV','AVAV','KTOS','RHM','TSLA','AAL','TM','GM','DAL','AFLYY','DLAKY','RYAAY','NOC','GD','SBUX','EXPE','ABNB','MAR','HLT','CCL','RCL','FLR','KBR','TE','SPM','MCDIF.EX','PFC.GBP','BKR','SLB','HAL','FLS','EMR','HON','GTLS','J','PWR','NUE','STLD','FCX','TS'] },
-    ],
-  },
-  {
-    id: 'C1',
-    label: 'C1 · TERRE',
-    color: '#e3b341',
-    bgColor: 'rgba(227,179,65,0.06)',
-    listes: [
-      { id: 'mp-or', nom: 'MP Or', isIA: false,
-        tickers: ['K8J0','TRX','XAUUSD','USGOLD','FNV','GOLD','97Z'] },
-      { id: 'mp-lithium', nom: 'MP Lithium', isIA: false,
-        tickers: ['LAC','006400','ALB','SGML','LIT','1772','EUR','SQM','ELVA','ELVR','LAR'] },
-      { id: 'mp-terres-rares', nom: 'MP Terres Rares', isIA: false,
-        tickers: ['USAR','Q','CRML','WENT','MP','LYC','BRE','UCU','SOLS','ADUR'] },
-      { id: 'mp-mines', nom: 'MP Mines', isIA: false,
-        tickers: ['EXPL','GLEN','DBG','CLF','RIO','ELMT','TMQ','BHP','EMB','FCX','SAND','ICOP'] },
-      { id: 'nrj-petrole', nom: 'NRJ Pétrole', isIA: false,
-        tickers: ['MOL','EQNR','ENI','SRG','NTGY','TTE','ENG','C0Y','VK','REP','OMV','FTI'] },
-    ],
-  },
-  {
-    id: 'C2',
-    label: 'C2 · ÉNERGIE',
-    color: '#f0b429',
-    bgColor: 'rgba(240,180,41,0.06)',
-    listes: [
-      { id: 'nrj-nucleaire', nom: 'NRJ Nucléaire', isIA: false,
-        tickers: ['CEZ','LEU','LTBR','NNE','CCJ','UUUU','OKLO','SMR','ASPI','NXE','BWXT','SOLS'] },
-      { id: 'nrj-renouvelable', nom: 'NRJ Renouvelable', isIA: false,
-        tickers: ['M98','XEL','SU','ENR','PLUG','GEV','ETN','FLNC','ENVX','SEDG','RWE','BE','FCEL','ENPH','TE','IREN','BLDP','CWR','SRL','ABB'] },
-      { id: 'nrj-chimie', nom: 'NRJ Chimie', isIA: false,
-        tickers: ['MAIRE','LIN','AI','BAYN','ASY','APD','NTR','HWKN'] },
-      { id: 'ia-energie', nom: 'IA Energie', isIA: true,
-        tickers: ['SU','CARR','CEG','ENR','KMI','PWR','CCJ','UEC','D','UUUU','XOM','LNG','CVX','OKLO','ETN','SMR','VST','DNN','VRT','NRG','DUK','SO','BWXT','SRUUF','EQT','WMB','HUBB','TT','JCI','EQIX','DLR','IRM','GEV','NEE'] },
-    ],
-  },
-  {
-    id: 'C2.5',
-    label: 'C2.5 · INFRASTRUCTURE',
-    color: '#00d4ff',
-    bgColor: 'rgba(0,212,255,0.06)',
-    listes: [
-      { id: 'infra-construction', nom: 'Infra Construction', isIA: false,
-        tickers: ['PLNW','ELIOR','DG','SIE','LACR','IKRA','KRW','IEX','WM','EQR','SAND'] },
-      { id: 'ia-infra-hardware', nom: 'IA Infra Hardware', isIA: true,
-        tickers: ['IOS','CSCO','OSS','596','VRT','CRWV','HPE','SMCI','992','AEVA','AVGO','FFIV'] },
-      { id: 'ia-infra-cloud', nom: 'IA Infra Cloud', isIA: true,
-        tickers: ['AL2SI','NOW','CRM','ADBE','AAPL','AMZN','WDAY','GOOGL','DDOG','META','ORCL','OVH','IBM','NBIS','DOCN'] },
-      { id: 'ia-telecom-optique', nom: 'IA Telecom Optique', isIA: true,
-        tickers: ['M7U','PRX','5802','EXENS','AXTI','PRY','AAOI','LITE','GLW','COHR','2303','NOK','8147','3363','RPI','6830','6451','EOS','FFIV'] },
-    ],
-  },
-  {
-    id: 'C3',
-    label: 'C3 · FABRICATION',
-    color: '#a371f7',
-    bgColor: 'rgba(163,113,247,0.06)',
-    listes: [
-      { id: 'semi-equipement', nom: 'Semi Équipement', isIA: false,
-        tickers: ['LRCX','KLAC','AMAT','ASML','AEHR','ASM'] },
-      { id: 'semi-design', nom: 'Semi Design', isIA: false,
-        tickers: ['SNPS','CDNS','RMBS','ALAB','TRT','ARM','MRVL'] },
-      { id: 'semi-fabrication', nom: 'Semi Fabrication', isIA: false,
-        tickers: ['8035','TTMI','TPE','TSM','BESI','TSEM','ATS','SMCI','SOI','3037','4958','2313','002463','002916','2383','301377','300476','4062','6967.TEN','3189','8147','KI5','GY9','2327'] },
-      { id: 'ia-memoire', nom: 'IA Mémoire', isIA: true,
-        tickers: ['NTAP','SIMO','STX','WDC','DELL','000660','MRAM','SNDK','MU','KI5'] },
-      { id: 'ia-photonique', nom: 'IA Photonique', isIA: true,
-        tickers: ['PLAB','AMS','HIMX','LPK','AIXA','POET','ALRIB','SOI','IQE','2DG','XFAB'] },
-      { id: 'ia-semi-general', nom: 'IA Semi Général', isIA: true,
-        tickers: ['TXN','NVDA','POWI','MCHP','AOSL','VSH','INTC','AMD','QCOM','VICR','ON','IFX','STM','NVTS','WOLF'] },
-      { id: 'ia-software-quantique', nom: 'IA Software Quantique', isIA: true,
-        tickers: ['APP','SEZL','CRCL','QUBT','IBM','INFQ','GFS','QBTS','DGXX','RGTI','IONQ','QMCO'] },
-      { id: 'ia-robotique', nom: 'IA Robotique', isIA: true,
-        tickers: ['CSCO','IRDM','ICOP','6326','AME','MPWR','CGNX','CEVA','TSLA','VPG','AMBA','VSH','K3R','OUST','STM','KRKNF','6088','RBC','RRX','ROK','PH','ALNT','ENS','SLAB'] },
-      { id: 'spacex', nom: 'SpaceX', isIA: false,
-        tickers: ['MNTS','SIDU','RDW','347700','PL','SATL','BKSY','LUNR','VELO','UFO','FLY','RKLB','SPIR','VOYG','OHB','NVDA','ASTS','AMPG','ETL','SATS','6285','STM','GHM','FTC','GILT'] },
-      { id: 'defense', nom: 'Défense', isIA: false,
-        tickers: ['ART1','AIR','HO','PARRO','GE','TDG','EXA','AXON','BA','RR.','RHM','3110','JBL','ONDS','AXTI','MILDEF'] },
-    ],
-  },
-  {
-    id: 'C4',
-    label: 'C4 · HUMAIN',
-    color: '#3fb950',
-    bgColor: 'rgba(63,185,80,0.06)',
-    listes: [
-      { id: 'luxe', nom: 'Luxe', isIA: false,
-        tickers: ['MC','RMS','MNST','AD','CA','DHZ','BIRK'] },
-      { id: 'finance-crypto', nom: 'Finance Crypto', isIA: false,
-        tickers: ['HUT','BTC','ETH','XRP','SOL','DOGE','ADA','SUI','AVAX','LTC'] },
-      { id: 'finance-fintech', nom: 'Finance Fintech', isIA: false,
-        tickers: ['BARC','V','MA','BX','WYFI','FUTU','PURR','GS','BLK','C','PNC','STT','ARES','ICE','BMPS','6099'] },
-      { id: 'biotech', nom: 'BioTech', isIA: false,
-        tickers: ['MEDCL','NANO','ILMN'] },
-      { id: 'healthcare', nom: 'Healthcare', isIA: false,
-        tickers: ['HROW','HURN','AORT'] },
-      { id: 'japon', nom: 'Japon', isIA: false,
-        tickers: ['6920','5803','7011','6146','3436'] },
-      { id: '13f-aschenbenner', nom: '13F AschenBenner', isIA: true,
-        tickers: ['NVDA','BW','TSM','ORCL','RIOT','WYFI','BE','INTC','ASML','APLD','PSIX','SMH','CORZ','AMD','BTDR','CRWV','TE','MU','SNDK','GLW','CLSK','IREN','HUT','HIVE','AVGO','SEI','BITFN','SHAZ','PUMP','INFY','KEEL'] },
-    ],
-  },
-];
-
-// Liens causaux validés
-const LIENS_CAUSAUX = [
-  ['mp-lithium', 'nrj-nucleaire'],
-  ['mp-terres-rares', 'nrj-renouvelable'],
-  ['nrj-petrole', 'nrj-chimie'],
-  ['mp-terres-rares', 'ia-energie'],
-  ['mp-lithium', 'ia-energie'],
-  ['nrj-nucleaire', 'infra-construction'],
-  ['nrj-renouvelable', 'infra-construction'],
-  ['ia-energie', 'ia-infra-hardware'],
-  ['ia-energie', 'ia-infra-cloud'],
-  ['ia-energie', 'ia-telecom-optique'],
-  ['infra-construction', 'defense'],
-  ['ia-infra-hardware', 'semi-equipement'],
-  ['ia-infra-cloud', 'semi-fabrication'],
-  ['semi-equipement', 'semi-design'],
-  ['semi-design', 'semi-fabrication'],
-  ['semi-fabrication', 'ia-memoire'],
-  ['ia-memoire', 'ia-photonique'],
-  ['ia-photonique', 'ia-semi-general'],
-  ['ia-semi-general', 'ia-software-quantique'],
-  ['ia-software-quantique', 'ia-robotique'],
-  ['defense', 'spacex'],
-  ['ia-robotique', 'finance-fintech'],
-];
 
 function getFamilleForSecteur(secteur) {
   for (const [fam, cfg] of Object.entries(FAMILLES)) {
@@ -367,473 +227,406 @@ function PortfolioView({ tickers, snapshots, period, setPeriod }) {
   );
 }
 
-// ─── PERFORMANCE VIEW ─────────────────────────────────────────────────────────
-function PerformanceView({ tickers, snapshots }) {
-  const [period, setPeriod] = useState('1J');
-  const [groupBy, setGroupBy] = useState('global');
-  const snapshotMap = {};
-  (snapshots || []).forEach(s => { snapshotMap[s.ticker] = s; });
+// ─── SUPPLY CHAIN MAP (L1→L12) ────────────────────────────────────────────────
+function getCustomersOf(ticker, companies) {
+  const res = [];
+  Object.keys(companies).forEach(function (id) {
+    const c = companies[id];
+    if (c.suppliers && c.suppliers.indexOf(ticker) !== -1 && res.indexOf(id) === -1) res.push(id);
+  });
+  return res;
+}
 
-  const sorted = [...tickers]
-    .map(t => ({ ...t, change: snapshotMap[t.ticker]?.[PERIOD_KEY[period]] ?? null }))
-    .sort((a, b) => {
-      if (a.change === null && b.change === null) return 0;
-      if (a.change === null) return 1;
-      if (b.change === null) return -1;
-      return b.change - a.change;
-    });
+function LegendDot({ color, label }) {
+  return (
+    <div style={{
+      display:'flex', alignItems:'center', gap:4, whiteSpace:'nowrap',
+      fontSize:8, color:'#3d5a72', fontFamily:'monospace', flexShrink:0,
+    }}>
+      <div style={{ width:6, height:6, borderRadius:'50%', background:color, flexShrink:0 }} />
+      {label}
+    </div>
+  );
+}
 
-  function PerfRow({ t, rank }) {
-    return (
-      <div style={{
-        display:'flex', alignItems:'center', gap:8,
-        padding:'9px 12px', borderBottom:'1px solid #161b22',
-      }}>
-        <span style={{ fontSize:10, color:'#484f58', width:18, textAlign:'center', flexShrink:0 }}>
-          {rank}
-        </span>
-        <div style={{ width:3, height:30, borderRadius:2, flexShrink:0,
-          background: TYPE_COLOR[t.type] || '#484f58' }} />
-        <div style={{ flex:1, minWidth:0 }}>
-          <div style={{ fontSize:11, fontWeight:700, color:'#e6edf3' }}>{t.ticker}</div>
-          <div style={{ fontSize:10, color:'#484f58', overflow:'hidden',
-            textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:110 }}>
-            {t.name}
-          </div>
-        </div>
-        <span style={{ fontSize:9, color:'#484f58', background:'#161b22',
-          borderRadius:4, padding:'2px 5px', maxWidth:70,
-          overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-          {t.secteur?.split(' ')[0]}
-        </span>
-        <span style={{ fontSize:12, fontWeight:700, color: changeColor(t.change),
-          minWidth:65, textAlign:'right' }}>
-          {fmtChange(t.change)}
-        </span>
-        <a href={ibLink(t.ticker)} target="_blank" rel="noopener noreferrer"
-          style={{ fontSize:9, color:'#484f58', background:'#161b22', borderRadius:4,
-            padding:'2px 5px', textDecoration:'none', fontWeight:600, flexShrink:0 }}>
-          IB →
-        </a>
-      </div>
-    );
-  }
+function Legend({ layers }) {
+  const layerMap = {};
+  layers.forEach(function (l) { layerMap[l.id] = l; });
+  const items = [
+    { id:'l1',  label:'L1 App' },
+    { id:'l5',  label:'L5 Compute' },
+    { id:'l6',  label:'L6 Memory' },
+    { id:'l9',  label:'L9 Foundry' },
+    { id:'l10', label:'L10 Equip.' },
+    { id:'l12', label:'L12 Minerals' },
+  ];
+  return (
+    <div style={{ display:'flex', gap:10, padding:'7px 2px', marginBottom:8, overflowX:'auto', scrollbarWidth:'none' }}>
+      <LegendDot color="#fb923c" label="← Fournisseur" />
+      <LegendDot color="#a855f7" label="→ Client" />
+      {items.map(function (it) {
+        const l = layerMap[it.id];
+        if (!l) return null;
+        return <LegendDot key={it.id} color={l.cc} label={it.label} />;
+      })}
+    </div>
+  );
+}
 
-  function renderList(list) {
-    return (
-      <div style={{ border:'1px solid #21262d', borderRadius:8, overflow:'hidden' }}>
-        {list.map((t, i) => <PerfRow key={t.ticker} t={t} rank={i + 1} />)}
-      </div>
-    );
-  }
+function Chip({ ticker, cc, bc, selection, onTap }) {
+  const style = {
+    fontFamily:'monospace', fontSize:10.5, fontWeight:500,
+    padding:'3px 7px', borderRadius:3, border:'1px solid ' + bc,
+    background:'rgba(0,0,0,0.3)', color:cc, cursor:'pointer',
+    whiteSpace:'nowrap', transition:'all .12s',
+  };
 
-  function renderByGroupe(getFn, groups) {
-    return groups.map(group => {
-      const list = sorted.filter(t => getFn(t) === group);
-      if (list.length === 0) return null;
-      const cfg = FAMILLES[group];
-      return (
-        <div key={group} style={{ marginBottom:14 }}>
-          <div style={{ fontSize:11, fontWeight:700, color: cfg?.color || '#8b949e',
-            marginBottom:6, display:'flex', alignItems:'center', gap:6 }}>
-            {cfg?.icon} {group}
-            <span style={{ fontSize:10, color:'#484f58', fontWeight:400 }}>· {list.length}</span>
-          </div>
-          {renderList(list)}
-        </div>
-      );
-    });
+  if (selection) {
+    if (ticker === selection.ticker) {
+      style.filter = 'brightness(1.5)';
+      style.boxShadow = '0 0 8px rgba(255,255,255,0.2)';
+    } else if (selection.suppliers.indexOf(ticker) !== -1) {
+      style.background = 'rgba(251,146,60,0.18)';
+      style.borderColor = '#fb923c';
+      style.color = '#fb923c';
+    } else if (selection.customers.indexOf(ticker) !== -1) {
+      style.background = 'rgba(168,85,247,0.18)';
+      style.borderColor = '#a855f7';
+      style.color = '#a855f7';
+    } else {
+      style.opacity = 0.15;
+    }
   }
 
   return (
-    <div>
-      <div style={{ display:'flex', gap:6, marginBottom:10 }}>
-        {PERIODS.map(p => (
-          <button key={p} onClick={() => setPeriod(p)} style={{
-            padding:'3px 10px', borderRadius:6, border:'none',
-            background: period === p ? '#f0b429' : '#161b22',
-            color: period === p ? '#0d1117' : '#8b949e',
-            fontSize:11, fontWeight:600, cursor:'pointer',
-          }}>{p}</button>
-        ))}
+    <span onClick={function () { onTap(ticker, cc); }} style={style}>{ticker}</span>
+  );
+}
+
+function SectionBlock({ section, cc, bc, selection, onTap }) {
+  if (!section.tickers || section.tickers.length === 0) return null;
+  return (
+    <div style={{ marginBottom:7 }}>
+      {section.title && (
+        <div style={{
+          fontFamily:'monospace', fontSize:7.5, letterSpacing:'0.12em',
+          textTransform:'uppercase', opacity:0.55, color:cc,
+          paddingBottom:4, marginBottom:5,
+          borderBottom:'1px solid rgba(255,255,255,0.04)',
+        }}>{section.title}</div>
+      )}
+      {section.note && (
+        <div style={{ fontSize:8, color:'#3d5a72', fontStyle:'italic', opacity:0.6, padding:'4px 0' }}>
+          {section.note}
+        </div>
+      )}
+      <div style={{ display:'flex', flexWrap:'wrap', gap:3 }}>
+        {section.tickers.map(function (t) {
+          return <Chip key={t} ticker={t} cc={cc} bc={bc} selection={selection} onTap={onTap} />;
+        })}
       </div>
-      <div style={{ display:'flex', gap:6, marginBottom:14,
-        background:'#0d1117', padding:4, borderRadius:8 }}>
-        {[{id:'global',label:'🌐 Global'},{id:'famille',label:'📁 Famille'},{id:'secteur',label:'🔬 Secteur'}].map(g => (
-          <button key={g.id} onClick={() => setGroupBy(g.id)} style={{
-            flex:1, padding:'6px 4px', borderRadius:6, border:'none',
-            background: groupBy === g.id ? '#f0b429' : 'transparent',
-            color: groupBy === g.id ? '#0d1117' : '#8b949e',
-            fontSize:11, fontWeight:600, cursor:'pointer',
-          }}>{g.label}</button>
-        ))}
+    </div>
+  );
+}
+
+function Connector({ text }) {
+  return (
+    <div style={{
+      textAlign:'center', fontFamily:'monospace', fontSize:8,
+      color:'#3d5a72', opacity:0.5, padding:'1px 0',
+      letterSpacing:'0.08em', fontStyle:'italic',
+    }}>▼  {text}</div>
+  );
+}
+
+function LayerBlock({ layer, isOpen, onToggle, selection, onTap }) {
+  let total = 0;
+  layer.lists.forEach(function (l) { total += (l.tickers ? l.tickers.length : 0); });
+
+  return (
+    <div style={{ borderRadius:5, border:'1px solid ' + layer.bc, background:layer.bg, overflow:'hidden' }}>
+      <div onClick={function () { onToggle(layer.id); }} style={{
+        display:'flex', alignItems:'center', gap:9, padding:'7px 11px', cursor:'pointer', userSelect:'none',
+      }}>
+        <span style={{
+          fontFamily:'monospace', fontSize:9, fontWeight:700, letterSpacing:'0.1em',
+          padding:'2px 6px', borderRadius:3, border:'1px solid ' + layer.bc, color:layer.cc, flexShrink:0,
+        }}>{layer.num}</span>
+        <span style={{ fontSize:10.5, fontWeight:600, flex:1, letterSpacing:'0.02em', color:layer.cc }}>{layer.name}</span>
+        <span style={{ fontFamily:'monospace', fontSize:8, color:'#3d5a72', whiteSpace:'nowrap' }}>
+          {total ? total + ' tickers' : '—'}
+        </span>
+        <span style={{
+          fontSize:8, color:'#3d5a72', marginLeft:4, transition:'transform .2s',
+          transform: isOpen ? 'rotate(90deg)' : 'none',
+        }}>▶</span>
       </div>
-      {groupBy === 'global' && renderList(sorted)}
-      {groupBy === 'famille' && renderByGroupe(t => getFamilleForSecteur(t.secteur), Object.keys(FAMILLES))}
-      {groupBy === 'secteur' && renderByGroupe(t => t.secteur, [...new Set(tickers.map(t => t.secteur))])}
-      {snapshots?.length > 0 && (
-        <div style={{ fontSize:10, color:'#484f58', textAlign:'center', marginTop:12 }}>
-          Snapshot · {new Date(snapshots[0]?.snapshot_time).toLocaleString('fr-FR')}
+      {isOpen && (
+        <div style={{ padding:'6px 10px 10px', borderTop:'1px solid rgba(255,255,255,0.05)' }}>
+          {layer.lists.map(function (sec, idx) {
+            return <SectionBlock key={idx} section={sec} cc={layer.cc} bc={layer.bc} selection={selection} onTap={onTap} />;
+          })}
         </div>
       )}
     </div>
   );
 }
 
-// ─── COUCHES VIEW ─────────────────────────────────────────────────────────────
-function CouchesView() {
-  const [selectedListe, setSelectedListe] = useState(null);
-  const [snapshots, setSnapshots] = useState({});
-  const [loadingSnap, setLoadingSnap] = useState(false);
-  const [period, setPeriod] = useState('1J');
-  const [highlightLinks, setHighlightLinks] = useState(false);
+function PanelBlock({ panel, isOpen, onToggle, selection, onTap }) {
+  let total = 0;
+  if (panel.lists) panel.lists.forEach(function (l) { total += (l.tickers ? l.tickers.length : 0); });
+  if (panel.subs) panel.subs.forEach(function (sub) {
+    sub.lists.forEach(function (l) { total += (l.tickers ? l.tickers.length : 0); });
+  });
 
-  // Charger snapshots pour la liste sélectionnée via Twelve Data
-  useEffect(() => {
-    if (!selectedListe) return;
-    const cached = snapshots[selectedListe.id];
-    if (cached) return;
-
-    setLoadingSnap(true);
-    const key = process.env.NEXT_PUBLIC_TWELVEDATA_KEY;
-    // On prend les 12 premiers tickers pour limiter les appels
-    const tickersToFetch = selectedListe.tickers.slice(0, 12);
-    const symbols = tickersToFetch.join(',');
-
-    fetch('https://api.twelvedata.com/quote?symbol=' + symbols + '&apikey=' + key)
-      .then(r => r.json())
-      .then(data => {
-        const map = {};
-        // Si un seul ticker, Twelve Data renvoie l'objet directement
-        if (tickersToFetch.length === 1) {
-          const sym = tickersToFetch[0];
-          if (data && data.percent_change) {
-            map[sym] = {
-              price: parseFloat(data.close) || null,
-              change_1d: parseFloat(data.percent_change) || null,
-            };
-          }
-        } else {
-          tickersToFetch.forEach(sym => {
-            const d = data[sym];
-            if (d && !d.code) {
-              map[sym] = {
-                price: parseFloat(d.close) || null,
-                change_1d: parseFloat(d.percent_change) || null,
-              };
-            }
-          });
-        }
-        setSnapshots(prev => ({ ...prev, [selectedListe.id]: map }));
-        setLoadingSnap(false);
-      })
-      .catch(() => setLoadingSnap(false));
-  }, [selectedListe]);
-
-  // Calculer perf moyenne d'une liste (mock si pas de snapshot)
-  function getPerfMoyenne(liste) {
-    const snap = snapshots[liste.id];
-    if (!snap) return null;
-    const vals = Object.values(snap).map(s => s.change_1d).filter(v => v != null);
-    if (vals.length === 0) return null;
-    return vals.reduce((a, b) => a + b, 0) / vals.length;
-  }
-
-  // Trouver une liste par id
-  function findListe(id) {
-    for (const couche of COUCHES) {
-      const l = couche.listes.find(x => x.id === id);
-      if (l) return l;
-    }
-    return null;
-  }
-
-  if (selectedListe) {
-    const snap = snapshots[selectedListe.id] || {};
-    const couche = COUCHES.find(c => c.listes.some(l => l.id === selectedListe.id));
-    const color = couche?.color || '#00d4ff';
-
-    // Liens depuis/vers cette liste
-    const upstream = LIENS_CAUSAUX.filter(([,to]) => to === selectedListe.id).map(([from]) => findListe(from)).filter(Boolean);
-    const downstream = LIENS_CAUSAUX.filter(([from]) => from === selectedListe.id).map(([,to]) => findListe(to)).filter(Boolean);
-
-    return (
-      <div>
-        {/* Header */}
-        <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:16 }}>
-          <button onClick={() => setSelectedListe(null)} style={{
-            background:'#161b22', border:'1px solid #21262d', borderRadius:8,
-            color:'#8b949e', fontSize:12, padding:'6px 12px', cursor:'pointer',
-          }}>← Retour</button>
-          <div style={{ flex:1 }}>
-            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-              <span style={{ fontSize:14, fontWeight:800, color }}>{selectedListe.nom}</span>
-              {selectedListe.isIA && (
-                <span style={{ fontSize:9, fontWeight:700, color:'#00d4ff',
-                  background:'rgba(0,212,255,0.12)', borderRadius:4, padding:'2px 6px' }}>IA</span>
-              )}
-            </div>
-            <div style={{ fontSize:10, color:'#484f58' }}>{selectedListe.tickers.length} tickers</div>
-          </div>
-          <div style={{ display:'flex', gap:4 }}>
-            {PERIODS.map(p => (
-              <button key={p} onClick={() => setPeriod(p)} style={{
-                padding:'3px 8px', borderRadius:5, border:'none',
-                background: period === p ? '#f0b429' : '#161b22',
-                color: period === p ? '#0d1117' : '#8b949e',
-                fontSize:10, fontWeight:600, cursor:'pointer',
-              }}>{p}</button>
-            ))}
-          </div>
-        </div>
-
-        {/* Liens causaux */}
-        {(upstream.length > 0 || downstream.length > 0) && (
-          <div style={{ marginBottom:14, background:'#0d1117', borderRadius:10,
-            border:'1px solid #21262d', padding:'10px 14px' }}>
-            {upstream.length > 0 && (
-              <div style={{ marginBottom:8 }}>
-                <div style={{ fontSize:9, color:'#484f58', fontWeight:700,
-                  letterSpacing:'0.05em', marginBottom:6 }}>ALIMENTÉ PAR</div>
-                <div style={{ display:'flex', flexWrap:'wrap', gap:5 }}>
-                  {upstream.map(l => (
-                    <button key={l.id} onClick={() => setSelectedListe(l)} style={{
-                      fontSize:10, fontWeight:600, color:'#f0b429',
-                      background:'rgba(240,180,41,0.1)', border:'1px solid rgba(240,180,41,0.2)',
-                      borderRadius:6, padding:'3px 8px', cursor:'pointer',
-                    }}>↑ {l.nom}</button>
-                  ))}
-                </div>
-              </div>
-            )}
-            {downstream.length > 0 && (
-              <div>
-                <div style={{ fontSize:9, color:'#484f58', fontWeight:700,
-                  letterSpacing:'0.05em', marginBottom:6 }}>ALIMENTE</div>
-                <div style={{ display:'flex', flexWrap:'wrap', gap:5 }}>
-                  {downstream.map(l => (
-                    <button key={l.id} onClick={() => setSelectedListe(l)} style={{
-                      fontSize:10, fontWeight:600, color:'#00d4ff',
-                      background:'rgba(0,212,255,0.08)', border:'1px solid rgba(0,212,255,0.2)',
-                      borderRadius:6, padding:'3px 8px', cursor:'pointer',
-                    }}>↓ {l.nom}</button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Tickers */}
-        {loadingSnap && (
-          <div style={{ textAlign:'center', padding:'20px 0', fontSize:11, color:'#484f58' }}>
-            ⏳ Chargement des prix...
-          </div>
-        )}
-        <div style={{ border:'1px solid #21262d', borderRadius:10, overflow:'hidden' }}>
-          {selectedListe.tickers.map((sym, i) => {
-            const s = snap[sym];
-            const change = s?.change_1d ?? null;
+  return (
+    <div style={{ borderRadius:5, border:'1px solid ' + panel.bc, background:panel.bg, overflow:'hidden' }}>
+      <div onClick={function () { onToggle(panel.id); }} style={{
+        display:'flex', alignItems:'center', gap:8, padding:'7px 10px', cursor:'pointer', userSelect:'none',
+      }}>
+        <span style={{
+          fontFamily:'monospace', fontSize:8, fontWeight:700, letterSpacing:'0.1em',
+          padding:'2px 5px', borderRadius:3, border:'1px solid ' + panel.bc, color:panel.cc, flexShrink:0,
+        }}>{panel.badge}</span>
+        <span style={{ fontSize:9.5, fontWeight:600, flex:1, color:panel.cc }}>{panel.name}</span>
+        <span style={{ fontFamily:'monospace', fontSize:8, color:'#3d5a72', whiteSpace:'nowrap' }}>{total} tickers</span>
+        <span style={{
+          fontSize:8, color:'#3d5a72', marginLeft:4, transition:'transform .2s',
+          transform: isOpen ? 'rotate(90deg)' : 'none',
+        }}>▶</span>
+      </div>
+      {isOpen && (
+        <div style={{ padding:'6px 10px 10px', borderTop:'1px solid rgba(255,255,255,0.05)' }}>
+          {panel.lists && panel.lists.map(function (sec, idx) {
+            return <SectionBlock key={idx} section={sec} cc={panel.cc} bc={panel.bc} selection={selection} onTap={onTap} />;
+          })}
+          {panel.subs && panel.subs.map(function (sub, sidx) {
             return (
-              <div key={sym} style={{
-                display:'flex', alignItems:'center', gap:10,
-                padding:'9px 12px',
-                borderBottom: i < selectedListe.tickers.length - 1 ? '1px solid #161b22' : 'none',
-                background: i % 2 === 0 ? '#0d1117' : 'transparent',
-              }}>
-                <span style={{ fontSize:12, fontWeight:700, color:'#e6edf3', flex:1 }}>{sym}</span>
-                {s?.price && (
-                  <span style={{ fontSize:11, color:'#8b949e' }}>
-                    ${Number(s.price).toFixed(2)}
-                  </span>
-                )}
-                <span style={{
-                  fontSize:11, fontWeight:700,
-                  color: change != null ? changeColor(change) : '#484f58',
-                  minWidth:55, textAlign:'right',
-                }}>
-                  {change != null ? fmtChange(change) : '—'}
-                </span>
-                <a href={ibLink(sym)} target="_blank" rel="noopener noreferrer"
-                  style={{ fontSize:9, color:'#484f58', background:'#161b22',
-                    borderRadius:4, padding:'2px 5px', textDecoration:'none',
-                    fontWeight:600, flexShrink:0 }}>
-                  IB →
-                </a>
+              <div key={sidx}>
+                <div style={{
+                  fontFamily:'monospace', fontSize:8, fontWeight:700, letterSpacing:'0.1em',
+                  textTransform:'uppercase', padding:'5px 0', margin:'6px 0 5px',
+                  borderTop:'1px solid rgba(255,255,255,0.05)', borderBottom:'1px solid rgba(255,255,255,0.05)',
+                  color:panel.cc,
+                }}>{sub.title}</div>
+                {sub.lists.map(function (sec, lidx) {
+                  return <SectionBlock key={lidx} section={sec} cc={panel.cc} bc={panel.bc} selection={selection} onTap={onTap} />;
+                })}
               </div>
             );
           })}
         </div>
+      )}
+    </div>
+  );
+}
 
-        {/* Tickers non couverts par snapshot (au-delà des 12) */}
-        {selectedListe.tickers.length > 12 && (
-          <div style={{ marginTop:8, fontSize:10, color:'#484f58', textAlign:'center' }}>
-            Prix chargés pour les 12 premiers · {selectedListe.tickers.length - 12} autres sans données
+function MacroPanelBlock({ panel, isOpen, onToggle, selection, onTap }) {
+  let total = 0;
+  if (panel.subs) panel.subs.forEach(function (sub) {
+    sub.lists.forEach(function (l) { total += (l.tickers ? l.tickers.length : 0); });
+  });
+
+  const left = [];
+  const right = [];
+  if (panel.subs) {
+    panel.subs.forEach(function (sub, i) {
+      if (i % 2 === 0) left.push(sub); else right.push(sub);
+    });
+  }
+
+  function renderCol(subs) {
+    return subs.map(function (sub, sidx) {
+      return (
+        <div key={sidx}>
+          <div style={{
+            fontFamily:'monospace', fontSize:8, fontWeight:700, letterSpacing:'0.1em',
+            textTransform:'uppercase', padding:'5px 0', margin:'6px 0 5px',
+            borderTop:'1px solid rgba(255,255,255,0.05)', borderBottom:'1px solid rgba(255,255,255,0.05)',
+            color:panel.cc,
+          }}>{sub.title}</div>
+          {sub.lists.map(function (sec, lidx) {
+            return <SectionBlock key={lidx} section={sec} cc={panel.cc} bc={panel.bc} selection={selection} onTap={onTap} />;
+          })}
+        </div>
+      );
+    });
+  }
+
+  return (
+    <div style={{ borderRadius:5, border:'1px solid ' + panel.bc, background:panel.bg, overflow:'hidden' }}>
+      <div onClick={function () { onToggle(panel.id); }} style={{
+        display:'flex', alignItems:'center', gap:8, padding:'7px 11px', cursor:'pointer', userSelect:'none',
+      }}>
+        <span style={{
+          fontFamily:'monospace', fontSize:8, fontWeight:700, letterSpacing:'0.1em',
+          padding:'2px 5px', borderRadius:3, border:'1px solid ' + panel.bc, color:panel.cc, flexShrink:0,
+        }}>{panel.badge}</span>
+        <span style={{ fontSize:9.5, fontWeight:600, flex:1, color:panel.cc }}>{panel.name}</span>
+        <span style={{ fontFamily:'monospace', fontSize:8, color:'#3d5a72', whiteSpace:'nowrap' }}>non relié — niveau L1</span>
+        <span style={{
+          fontSize:8, color:'#3d5a72', marginLeft:4, transition:'transform .2s',
+          transform: isOpen ? 'rotate(90deg)' : 'none',
+        }}>▶</span>
+      </div>
+      {isOpen && (
+        <div style={{ padding:'6px 10px 10px', borderTop:'1px solid rgba(255,255,255,0.05)' }}>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+            <div>{renderCol(left)}</div>
+            <div>{renderCol(right)}</div>
           </div>
-        )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TickerDetail({ selection, companies, onClose }) {
+  const co = companies[selection.ticker] || { name:'', role:'', suppliers:[], customers:[] };
+
+  function renderRow(t, dir) {
+    const c2 = companies[t];
+    return (
+      <div key={t} style={{ fontSize:9.5, padding:'2px 0 2px 13px', position:'relative', color:'#b8cfe0' }}>
+        <span style={{ position:'absolute', left:0, color: dir === 'up' ? '#fb923c' : '#a855f7' }}>
+          {dir === 'up' ? '←' : '→'}
+        </span>
+        {t}{c2 ? ' — ' + c2.name : ''}
       </div>
     );
   }
 
-  // ── VUE PRINCIPALE COUCHES ────────────────────────────────────────────────
+  return (
+    <div style={{
+      position:'sticky', top:0, zIndex:50, background:'#0b1422',
+      border:'1px solid #3b82f6', borderRadius:5, padding:'10px 13px', marginBottom:6,
+      boxShadow:'0 8px 28px rgba(0,0,0,.5)',
+    }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:4 }}>
+        <div>
+          <div style={{ fontFamily:'monospace', fontSize:13, fontWeight:700, color:selection.color }}>{selection.ticker}</div>
+          <div style={{ fontSize:9, color:'#3d5a72', fontFamily:'monospace' }}>
+            {co.name}{co.role ? ' — ' + co.role : ''}
+          </div>
+        </div>
+        <span onClick={onClose} style={{ cursor:'pointer', color:'#3d5a72', fontSize:14, padding:'0 4px' }}>✕</span>
+      </div>
+      {selection.suppliers.length > 0 && (
+        <div style={{ marginTop:5 }}>
+          <div style={{ fontSize:8, letterSpacing:'0.1em', textTransform:'uppercase', color:'#3d5a72', margin:'5px 0 2px' }}>
+            ← Fournisseurs
+          </div>
+          {selection.suppliers.map(function (t) { return renderRow(t, 'up'); })}
+        </div>
+      )}
+      {selection.customers.length > 0 && (
+        <div style={{ marginTop:5 }}>
+          <div style={{ fontSize:8, letterSpacing:'0.1em', textTransform:'uppercase', color:'#3d5a72', margin:'5px 0 2px' }}>
+            → Clients / Aval
+          </div>
+          {selection.customers.map(function (t) { return renderRow(t, 'down'); })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SupplyChainMap() {
+  const [data, setData] = useState(null);
+  const [loadError, setLoadError] = useState(null);
+  const [closedLayers, setClosedLayers] = useState({});
+  const [openPanels, setOpenPanels] = useState({});
+  const [selection, setSelection] = useState(null);
+
+  useEffect(function () {
+    getCouchesData()
+      .then(function (d) { setData(d); })
+      .catch(function (e) { setLoadError(e.message); });
+  }, []);
+
+  function toggleLayer(id) {
+    setClosedLayers(function (prev) {
+      const next = Object.assign({}, prev);
+      next[id] = !prev[id];
+      return next;
+    });
+  }
+
+  function togglePanel(id) {
+    setOpenPanels(function (prev) {
+      const next = Object.assign({}, prev);
+      next[id] = !prev[id];
+      return next;
+    });
+  }
+
+  function handleTap(ticker, color) {
+    setSelection(function (prev) {
+      if (prev && prev.ticker === ticker) return null;
+      const co = data.companies[ticker] || { suppliers:[], customers:[] };
+      const suppliers = co.suppliers || [];
+      const customers = (co.customers && co.customers.length) ? co.customers : getCustomersOf(ticker, data.companies);
+      return { ticker:ticker, color:color, suppliers:suppliers, customers:customers };
+    });
+  }
+
+  if (loadError) {
+    return <div style={{ fontSize:12, color:'#f85149', padding:20, textAlign:'center' }}>❌ {loadError}</div>;
+  }
+  if (!data) {
+    return <div style={{ fontSize:11, color:'#484f58', padding:20, textAlign:'center' }}>⏳ Chargement de la carte...</div>;
+  }
+
+  const macroPanel = data.panels.filter(function (p) { return p.id === 'macro'; })[0];
+  const sidePanels = data.panels.filter(function (p) { return p.id !== 'macro'; });
+
   return (
     <div>
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:16 }}>
-        <div>
-          <div style={{ fontSize:13, fontWeight:800, color:'#e6edf3' }}>Carte Causale</div>
-          <div style={{ fontSize:10, color:'#484f58' }}>C0 → C4 · Clic sur une liste pour le détail</div>
-        </div>
-        <div style={{ display:'flex', gap:4 }}>
-          {PERIODS.map(p => (
-            <button key={p} onClick={() => setPeriod(p)} style={{
-              padding:'3px 8px', borderRadius:5, border:'none',
-              background: period === p ? '#f0b429' : '#161b22',
-              color: period === p ? '#0d1117' : '#8b949e',
-              fontSize:10, fontWeight:600, cursor:'pointer',
-            }}>{p}</button>
-          ))}
+      <div style={{ marginBottom:12 }}>
+        <div style={{
+          fontFamily:'monospace', fontSize:11, fontWeight:700, letterSpacing:'0.1em',
+          color:'#eaf3ff', textTransform:'uppercase',
+        }}>🗺️ AI Supply Chain — Couches</div>
+        <div style={{ fontSize:9, color:'#3d5a72', fontFamily:'monospace', marginTop:2 }}>
+          Tap un ticker = fournisseurs ← · clients →
         </div>
       </div>
 
-      {COUCHES.map((couche) => (
-        <div key={couche.id} style={{
-          marginBottom:16,
-          background: couche.bgColor,
-          border: '1px solid ' + couche.color + '33',
-          borderRadius:14,
-          overflow:'hidden',
-        }}>
-          {/* Header couche */}
-          <div style={{
-            padding:'8px 14px',
-            borderBottom: '1px solid ' + couche.color + '22',
-            display:'flex', alignItems:'center', gap:8,
-          }}>
-            <div style={{
-              width:6, height:6, borderRadius:'50%',
-              background: couche.color, flexShrink:0,
-            }} />
-            <span style={{ fontSize:10, fontWeight:800, color: couche.color,
-              letterSpacing:'0.08em' }}>
-              {couche.label}
-            </span>
-            <span style={{ fontSize:9, color:'#484f58', marginLeft:'auto' }}>
-              {couche.listes.reduce((a, l) => a + l.tickers.length, 0)} tickers
-            </span>
-          </div>
+      <Legend layers={data.layers} />
 
-          {/* Grille listes */}
-          <div style={{ padding:'10px 10px', display:'flex', flexWrap:'wrap', gap:8 }}>
-            {couche.listes.map(liste => {
-              const perf = getPerfMoyenne(liste);
-              const nbTickers = liste.tickers.length;
-              // Taille du bloc proportionnelle au nb de tickers (entre 44% et 100%)
-              const minW = nbTickers <= 5 ? 44 : nbTickers <= 10 ? 48 : nbTickers <= 15 ? 52 : 100;
+      {selection && (
+        <TickerDetail selection={selection} companies={data.companies} onClose={function () { setSelection(null); }} />
+      )}
 
-              return (
-                <button
-                  key={liste.id}
-                  onClick={() => setSelectedListe(liste)}
-                  style={{
-                    flex: nbTickers > 20 ? '1 1 100%' : nbTickers > 12 ? '1 1 calc(50% - 4px)' : '1 1 calc(50% - 4px)',
-                    minWidth: minW + '%',
-                    background: perf != null
-                      ? (perf >= 0 ? 'rgba(63,185,80,0.08)' : 'rgba(248,81,73,0.08)')
-                      : 'rgba(255,255,255,0.03)',
-                    border: '1px solid ' + (perf != null
-                      ? (perf >= 0 ? '#3fb95033' : '#f8514933')
-                      : '#21262d'),
-                    borderRadius:10,
-                    padding:'10px 12px',
-                    cursor:'pointer',
-                    textAlign:'left',
-                    transition:'all .15s',
-                  }}
-                >
-                  <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:6 }}>
-                    <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ display:'flex', alignItems:'center', gap:5, marginBottom:4 }}>
-                        <span style={{ fontSize:11, fontWeight:700, color:'#e6edf3',
-                          overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                          {liste.nom}
-                        </span>
-                        {liste.isIA && (
-                          <span style={{ fontSize:8, fontWeight:700, color:'#00d4ff',
-                            background:'rgba(0,212,255,0.12)', borderRadius:3,
-                            padding:'1px 4px', flexShrink:0 }}>IA</span>
-                        )}
-                      </div>
-                      <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                        <span style={{ fontSize:10, color:'#484f58' }}>{nbTickers} tickers</span>
-                        {perf != null && (
-                          <span style={{
-                            fontSize:11, fontWeight:700,
-                            color: perf >= 0 ? '#3fb950' : '#f85149',
-                          }}>
-                            {fmtChange(perf)}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <span style={{ fontSize:14, color: couche.color, opacity:0.5, flexShrink:0 }}>›</span>
+      <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+        {macroPanel && (
+          <MacroPanelBlock panel={macroPanel} isOpen={!!openPanels.macro} onToggle={togglePanel}
+            selection={selection} onTap={handleTap} />
+        )}
+        <Connector text="parallel — non causal" />
+
+        {data.layers.map(function (layer) {
+          const isOpen = !closedLayers[layer.id];
+          const panelsHere = sidePanels.filter(function (p) { return p.connectedAfter === layer.id; });
+          return (
+            <div key={layer.id} style={{ display:'flex', flexDirection:'column', gap:4 }}>
+              <LayerBlock layer={layer} isOpen={isOpen} onToggle={toggleLayer} selection={selection} onTap={handleTap} />
+              {layer.connBelow && <Connector text={layer.connBelow} />}
+              {panelsHere.map(function (p) {
+                return (
+                  <div key={p.id} style={{ display:'flex', flexDirection:'column', gap:4 }}>
+                    <Connector text={'◄┄ connecté à ' + p.name} />
+                    <PanelBlock panel={p} isOpen={!!openPanels[p.id]} onToggle={togglePanel}
+                      selection={selection} onTap={handleTap} />
                   </div>
-
-                  {/* Mini barre de perf */}
-                  {perf != null && (
-                    <div style={{ marginTop:8, height:3, borderRadius:2,
-                      background:'#161b22', overflow:'hidden' }}>
-                      <div style={{
-                        height:'100%', borderRadius:2,
-                        width: Math.min(Math.abs(perf) * 8, 100) + '%',
-                        background: perf >= 0 ? '#3fb950' : '#f85149',
-                      }} />
-                    </div>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      ))}
-
-      {/* Légende liens causaux */}
-      <div style={{ marginTop:8, marginBottom:4, background:'#0d1117',
-        borderRadius:10, padding:'10px 14px', border:'1px solid #21262d' }}>
-        <div style={{ fontSize:9, color:'#484f58', fontWeight:700,
-          letterSpacing:'0.06em', marginBottom:8 }}>LIENS CAUSAUX VALIDÉS</div>
-        <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
-          {LIENS_CAUSAUX.map(([from, to], i) => {
-            const lFrom = findListe(from);
-            const lTo = findListe(to);
-            if (!lFrom || !lTo) return null;
-            return (
-              <div key={i} style={{ display:'flex', alignItems:'center', gap:6 }}>
-                <button onClick={() => setSelectedListe(lFrom)} style={{
-                  fontSize:9, color:'#f0b429', background:'rgba(240,180,41,0.08)',
-                  border:'1px solid rgba(240,180,41,0.15)', borderRadius:4,
-                  padding:'2px 6px', cursor:'pointer',
-                }}>{lFrom.nom}</button>
-                <span style={{ fontSize:9, color:'#484f58' }}>→</span>
-                <button onClick={() => setSelectedListe(lTo)} style={{
-                  fontSize:9, color:'#00d4ff', background:'rgba(0,212,255,0.06)',
-                  border:'1px solid rgba(0,212,255,0.15)', borderRadius:4,
-                  padding:'2px 6px', cursor:'pointer',
-                }}>{lTo.nom}</button>
-              </div>
-            );
-          })}
-        </div>
+                );
+              })}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
-
-  function findListe(id) {
-    for (const couche of COUCHES) {
-      const l = couche.listes.find(x => x.id === id);
-      if (l) return l;
-    }
-    return null;
-  }
 }
 
 // ─── IMPORT VIEW ──────────────────────────────────────────────────────────────
@@ -1129,9 +922,6 @@ function ClassifyView() {
   );
 }
 
-// ─── EXPORT PRINCIPAL ─────────────────────────────────────────────────────────
-export { COUCHES, LIENS_CAUSAUX };
-
 export default function MomentumModule() {
   const [tab, setTab]           = useState('portfolio');
   const [tickers, setTickers]   = useState([]);
@@ -1157,7 +947,6 @@ export default function MomentumModule() {
 
   const tabs = [
     { id:'portfolio',    label:'📊 Portfolio' },
-    { id:'performance',  label:'📈 Perf' },
     { id:'couches',      label:'🗺️ Couches' },
     { id:'import',       label:'📥 Importer' },
     { id:'classify',     label:'🤖 Classifier' },
@@ -1189,8 +978,7 @@ export default function MomentumModule() {
       {tab === 'portfolio' && (
         <PortfolioView tickers={tickers} snapshots={snapshots} period={period} setPeriod={setPeriod} />
       )}
-      {tab === 'performance' && <PerformanceView tickers={tickers} snapshots={snapshots} />}
-      {tab === 'couches' && <CouchesView />}
+      {tab === 'couches' && <SupplyChainMap />}
       {tab === 'import' && <ImportView onImportDone={() => { loadData(); setTab('portfolio'); }} />}
       {tab === 'classify' && <ClassifyView />}
     </div>
