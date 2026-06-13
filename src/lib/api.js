@@ -430,3 +430,105 @@ export async function analyzeDrift(ticker, perf30d, earningsDate) {
   const data = await response.json();
   return data.content?.[0]?.text ?? 'Erreur analyse drift';
 }
+
+// ─── COUCHES L1-L12 : Charger architecture complète depuis Supabase ──────────
+export async function getCouchesData() {
+  const layersRes = await supabase
+    .from('couches_layers')
+    .select('*')
+    .order('order_index');
+  if (layersRes.error) throw new Error(layersRes.error.message);
+
+  const panelsRes = await supabase
+    .from('couches_panels')
+    .select('*')
+    .order('order_index');
+  if (panelsRes.error) throw new Error(panelsRes.error.message);
+
+  const companiesRes = await supabase
+    .from('couches_companies')
+    .select('*');
+  if (companiesRes.error) throw new Error(companiesRes.error.message);
+
+  const sectionsRes = await supabase
+    .from('couches_sections')
+    .select('id, parent_type, parent_id, group_title, list_title, note, order_index, couches_section_tickers(ticker, order_index)')
+    .order('order_index');
+  if (sectionsRes.error) throw new Error(sectionsRes.error.message);
+
+  const companies = {};
+  (companiesRes.data || []).forEach(function (c) {
+    companies[c.ticker] = c;
+  });
+
+  function sortByOrder(a, b) {
+    return a.order_index - b.order_index;
+  }
+
+  function buildLists(parentType, parentId) {
+    return (sectionsRes.data || [])
+      .filter(function (s) { return s.parent_type === parentType && s.parent_id === parentId; })
+      .sort(sortByOrder)
+      .map(function (s) {
+        const tickers = (s.couches_section_tickers || [])
+          .sort(sortByOrder)
+          .map(function (st) { return st.ticker; });
+        return {
+          title: s.list_title,
+          note: s.note,
+          groupTitle: s.group_title,
+          tickers: tickers
+        };
+      });
+  }
+
+  const layers = (layersRes.data || []).map(function (l) {
+    return {
+      id: l.id,
+      num: l.num,
+      name: l.name,
+      cc: l.color_chip,
+      bc: l.color_border,
+      bg: l.color_bg,
+      connBelow: l.conn_below,
+      lists: buildLists('layer', l.id)
+    };
+  });
+
+  const panels = (panelsRes.data || []).map(function (p) {
+    const allSections = buildLists('panel', p.id);
+    const directLists = [];
+    const subsMap = {};
+    const subsOrder = [];
+
+    allSections.forEach(function (sec) {
+      if (sec.groupTitle) {
+        if (!subsMap[sec.groupTitle]) {
+          subsMap[sec.groupTitle] = [];
+          subsOrder.push(sec.groupTitle);
+        }
+        subsMap[sec.groupTitle].push(sec);
+      } else {
+        directLists.push(sec);
+      }
+    });
+
+    const subs = subsOrder.map(function (title) {
+      return { title: title, lists: subsMap[title] };
+    });
+
+    return {
+      id: p.id,
+      badge: p.badge,
+      name: p.name,
+      cc: p.color_chip,
+      bc: p.color_border,
+      bg: p.color_bg,
+      connectedAfter: p.connected_after_layer_id,
+      lists: directLists.length ? directLists : null,
+      subs: subs.length ? subs : null
+    };
+  });
+
+  return { layers: layers, panels: panels, companies: companies };
+}
