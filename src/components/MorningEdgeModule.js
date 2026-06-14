@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { getCouchesData } from "../lib/api";
 
 // ─────────────────────────────────────────────────────────────────
@@ -469,7 +469,6 @@ function SupplyChainMap(props) {
   var layers = couchesData.layers;
   var panels = couchesData.panels;
 
-  // Index panels
   var panelById = {};
   panels.forEach(function(p) { panelById[p.id] = p; });
 
@@ -489,11 +488,10 @@ function SupplyChainMap(props) {
   }
 
   function renderLayerBlock(layer) {
-    var sections = layer.lists || [];
     return (
       <LayerBlock
         layer={layer}
-        sections={sections}
+        sections={layer.lists || []}
         scoreMap={scoreMap}
         onSelect={onSelect}
         selectedId={selectedId}
@@ -502,13 +500,12 @@ function SupplyChainMap(props) {
   }
 
   function renderPanelBlock(panel) {
-    if (!panel) return <div />;
+    if (!panel) return null;
     var pc = PANEL_COLORS[panel.id] || { cc: "#94a3b8", bg: "#08090d" };
-    var sections = getSections(panel);
     return (
       <LayerBlock
-        layer={{ num: panel.badge, name: panel.name, badge: panel.badge, cc: pc.cc, bg: pc.bg, bc: pc.cc }}
-        sections={sections}
+        layer={{ num: panel.badge, name: panel.name, badge: panel.badge, cc: pc.cc, bg: pc.bg }}
+        sections={getSections(panel)}
         scoreMap={scoreMap}
         onSelect={onSelect}
         selectedId={selectedId}
@@ -519,30 +516,45 @@ function SupplyChainMap(props) {
     );
   }
 
-  // Chaque row du tronc = une ligne CSS grid 3 colonnes
-  // Power apparaît à gauche au niveau L5, reste visible jusqu'à L12 (rowspan simulé via sticky)
-  // Thermal à droite niveau L5, Security niveau L9, Edge niveau L11
-  // Colonne gauche vide avant L5, colonne droite vide sauf aux layers concernés
+  // Refs pour mesurer la position Y de L5, L9, L11 dans le tronc
+  // On utilise une approche CSS pure : chaque layer a un data-id,
+  // et les panneaux latéraux sont positionnés en absolute dans un wrapper relative.
+  // Le wrapper a un padding-left et padding-right pour laisser la place aux panneaux
+  // MAIS le tronc lui-même ignore ces paddings grâce à margin négatif compensé.
+  //
+  // Approche choisie : wrapper relative, tronc en position normale au centre,
+  // panneaux en position absolute à gauche/droite, alignés sur leur layer via
+  // un élément ancre (div vide avec ref) inséré au bon endroit dans le tronc.
 
-  // Pour simuler le rowspan de Power (L5→L12) on utilise CSS grid avec
-  // grid-row sur un élément positionné dans la sous-grille.
-  // Solution plus simple et robuste : on wrappe le tout dans une grille
-  // où chaque layer est une "row" et les panneaux sont placés en grid-row explicite.
+  const [l5Top,  setL5Top]  = useState(0);
+  const [l9Top,  setL9Top]  = useState(0);
+  const [l11Top, setL11Top] = useState(0);
+  const wrapRef = useRef(null);
+  const l5Ref   = useRef(null);
+  const l9Ref   = useRef(null);
+  const l11Ref  = useRef(null);
 
-  // Compter les layers pour savoir les indices
-  var layerIds = layers.map(function(l) { return l.id; });
-  var idxL5  = layerIds.indexOf("l5");
-  var idxL9  = layerIds.indexOf("l9");
-  var idxL11 = layerIds.indexOf("l11");
-  var idxL12 = layerIds.length - 1;
+  useEffect(function() {
+    function measure() {
+      if (!wrapRef.current) return;
+      var wrapTop = wrapRef.current.getBoundingClientRect().top + window.scrollY;
+      if (l5Ref.current)  setL5Top(l5Ref.current.getBoundingClientRect().top   + window.scrollY - wrapTop);
+      if (l9Ref.current)  setL9Top(l9Ref.current.getBoundingClientRect().top   + window.scrollY - wrapTop);
+      if (l11Ref.current) setL11Top(l11Ref.current.getBoundingClientRect().top + window.scrollY - wrapTop);
+    }
+    measure();
+    window.addEventListener("resize", measure);
+    return function() { window.removeEventListener("resize", measure); };
+  }, [layers, couchesData]);
 
-  // Nombre de rows CSS = nb layers * 2 (layer + connector) + quelques extras
-  // On va plutôt faire une approche flex avec des wrappers par row
+  // Largeur panneau latéral = 28% de la largeur totale
+  // Tronc = 44% centré, marges gauche/droite = 28% chacune
+  var PANEL_W = "28%";
+  var TRUNK_W = "44%";
 
   return (
     <div style={{ width: "100%" }}>
-
-      {/* MACRO — pleine largeur, en haut */}
+      {/* MACRO — pleine largeur */}
       {macroPanel && (
         <div style={{ marginBottom: 6 }}>
           <div style={{ fontSize: 8, letterSpacing: 3, color: "#94a3b8", textAlign: "center",
@@ -554,65 +566,92 @@ function SupplyChainMap(props) {
         </div>
       )}
 
-      {/* Tronc L1→L12 avec panneaux latéraux alignés row par row */}
-      {layers.map(function(layer, idx) {
-        var isL5  = layer.id === "l5";
-        var isL9  = layer.id === "l9";
-        var isL11 = layer.id === "l11";
+      {/* Wrapper relatif : contient le tronc centré + panneaux en absolu */}
+      <div ref={wrapRef} style={{ position: "relative", width: "100%" }}>
 
-        // Panneau gauche : Power apparaît à partir de L5
-        var showPowerLeft = idx >= idxL5;
-        // Panneau droit selon le layer
-        var rightPanel = isL5 ? thermalPanel : isL9 ? securityPanel : isL11 ? edgePanel : null;
-
-        return (
-          <div key={layer.id}>
-            {/* Row : gauche | centre | droite */}
-            <div style={{
-              display: "grid",
-              gridTemplateColumns: "22% 56% 22%",
-              gap: 8,
-              alignItems: "start",
-              width: "100%",
-            }}>
-              {/* Colonne gauche — Power à partir de L5 */}
-              <div style={{ minHeight: 0 }}>
-                {isL5 && powerPanel && (
-                  <div>
-                    <div style={{ fontSize: 7, letterSpacing: 2, color: PANEL_COLORS.power.cc,
-                      fontFamily: "monospace", marginBottom: 3, fontWeight: 700, opacity: 0.7 }}>
-                      ◄ POWER INFRASTRUCTURE
-                    </div>
-                    {renderPanelBlock(powerPanel)}
-                  </div>
-                )}
-              </div>
-
-              {/* Colonne centre — layer */}
-              <div>
-                {renderLayerBlock(layer)}
-              </div>
-
-              {/* Colonne droite — panneau spécifique au layer */}
-              <div style={{ minHeight: 0 }}>
-                {rightPanel && (
-                  <div>
-                    <div style={{ fontSize: 7, letterSpacing: 2,
-                      color: PANEL_COLORS[rightPanel.id] ? PANEL_COLORS[rightPanel.id].cc : "#94a3b8",
-                      fontFamily: "monospace", marginBottom: 3, fontWeight: 700, opacity: 0.7 }}>
-                      {rightPanel.badge} ►
-                    </div>
-                    {renderPanelBlock(rightPanel)}
-                  </div>
-                )}
-              </div>
+        {/* POWER — absolu à gauche, aligné sur L5 */}
+        {powerPanel && l5Top > 0 && (
+          <div style={{
+            position: "absolute", left: 0, top: l5Top,
+            width: PANEL_W,
+          }}>
+            <div style={{ fontSize: 7, letterSpacing: 2, color: PANEL_COLORS.power.cc,
+              fontFamily: "monospace", marginBottom: 3, fontWeight: 700, opacity: 0.8 }}>
+              ◄ POWER INFRASTRUCTURE
             </div>
-
-            {/* Connector entre layers */}
-            {layer.connBelow && <Connector text={layer.connBelow} />}
+            {renderPanelBlock(powerPanel)}
           </div>
-        );
-      })}
+        )}
+
+        {/* THERMAL — absolu à droite, aligné sur L5 */}
+        {thermalPanel && l5Top > 0 && (
+          <div style={{
+            position: "absolute", right: 0, top: l5Top,
+            width: PANEL_W,
+          }}>
+            <div style={{ fontSize: 7, letterSpacing: 2, color: PANEL_COLORS.thermal.cc,
+              fontFamily: "monospace", marginBottom: 3, fontWeight: 700, opacity: 0.8 }}>
+              THERMAL ►
+            </div>
+            {renderPanelBlock(thermalPanel)}
+          </div>
+        )}
+
+        {/* SECURITY — absolu à droite, aligné sur L9 */}
+        {securityPanel && l9Top > 0 && (
+          <div style={{
+            position: "absolute", right: 0, top: l9Top,
+            width: PANEL_W,
+          }}>
+            <div style={{ fontSize: 7, letterSpacing: 2, color: PANEL_COLORS.security.cc,
+              fontFamily: "monospace", marginBottom: 3, fontWeight: 700, opacity: 0.8 }}>
+              SECURITY ►
+            </div>
+            {renderPanelBlock(securityPanel)}
+          </div>
+        )}
+
+        {/* EDGE — absolu à droite, aligné sur L11 */}
+        {edgePanel && l11Top > 0 && (
+          <div style={{
+            position: "absolute", right: 0, top: l11Top,
+            width: PANEL_W,
+          }}>
+            <div style={{ fontSize: 7, letterSpacing: 2, color: PANEL_COLORS.edge.cc,
+              fontFamily: "monospace", marginBottom: 3, fontWeight: 700, opacity: 0.8 }}>
+              EDGE ►
+            </div>
+            {renderPanelBlock(edgePanel)}
+          </div>
+        )}
+
+        {/* TRONC CENTRAL — toujours centré, largeur fixe, pas affecté par les panneaux */}
+        <div style={{
+          width: TRUNK_W,
+          marginLeft: "auto",
+          marginRight: "auto",
+          display: "flex",
+          flexDirection: "column",
+          gap: 4,
+        }}>
+          {layers.map(function(layer) {
+            var isL5  = layer.id === "l5";
+            var isL9  = layer.id === "l9";
+            var isL11 = layer.id === "l11";
+            return (
+              <div key={layer.id}>
+                {/* Ancre de mesure */}
+                {isL5  && <div ref={l5Ref}  style={{ height: 0 }} />}
+                {isL9  && <div ref={l9Ref}  style={{ height: 0 }} />}
+                {isL11 && <div ref={l11Ref} style={{ height: 0 }} />}
+                {renderLayerBlock(layer)}
+                {layer.connBelow && <Connector text={layer.connBelow} />}
+              </div>
+            );
+          })}
+        </div>
+
+      </div>
     </div>
   );
 }
