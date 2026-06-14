@@ -519,23 +519,32 @@ function SupplyChainMap(props) {
     );
   }
 
-  // Lignes de la grille 3 colonnes :
-  // [POWER_col | tronc_centre | THERMAL_col]
-  // POWER occupe L5→L12 côté gauche
-  // THERMAL au niveau L5, SECURITY au niveau L9, EDGE au niveau L11 côté droit
+  // Chaque row du tronc = une ligne CSS grid 3 colonnes
+  // Power apparaît à gauche au niveau L5, reste visible jusqu'à L12 (rowspan simulé via sticky)
+  // Thermal à droite niveau L5, Security niveau L9, Edge niveau L11
+  // Colonne gauche vide avant L5, colonne droite vide sauf aux layers concernés
 
-  // On construit le tronc comme liste de rows avec leur contexte panneau droit
-  var SIDE_RIGHT = {
-    l5: thermalPanel,
-    l9: securityPanel,
-    l11: edgePanel,
-  };
+  // Pour simuler le rowspan de Power (L5→L12) on utilise CSS grid avec
+  // grid-row sur un élément positionné dans la sous-grille.
+  // Solution plus simple et robuste : on wrappe le tout dans une grille
+  // où chaque layer est une "row" et les panneaux sont placés en grid-row explicite.
+
+  // Compter les layers pour savoir les indices
+  var layerIds = layers.map(function(l) { return l.id; });
+  var idxL5  = layerIds.indexOf("l5");
+  var idxL9  = layerIds.indexOf("l9");
+  var idxL11 = layerIds.indexOf("l11");
+  var idxL12 = layerIds.length - 1;
+
+  // Nombre de rows CSS = nb layers * 2 (layer + connector) + quelques extras
+  // On va plutôt faire une approche flex avec des wrappers par row
 
   return (
-    <div style={{ minWidth: 700 }}>
-      {/* MACRO — centré, en haut */}
+    <div style={{ width: "100%" }}>
+
+      {/* MACRO — pleine largeur, en haut */}
       {macroPanel && (
-        <div style={{ marginBottom: 8 }}>
+        <div style={{ marginBottom: 6 }}>
           <div style={{ fontSize: 8, letterSpacing: 3, color: "#94a3b8", textAlign: "center",
             fontFamily: "monospace", marginBottom: 4, fontWeight: 700 }}>
             MACRO · WATCHLISTS — non relié au tronc
@@ -545,40 +554,65 @@ function SupplyChainMap(props) {
         </div>
       )}
 
-      {/* Grille 3 colonnes : LEFT (power) | CENTRE (L1-L12) | RIGHT (thermal/security/edge) */}
-      <div style={{ display: "grid", gridTemplateColumns: "220px 1fr 220px", gap: 10, alignItems: "start" }}>
+      {/* Tronc L1→L12 avec panneaux latéraux alignés row par row */}
+      {layers.map(function(layer, idx) {
+        var isL5  = layer.id === "l5";
+        var isL9  = layer.id === "l9";
+        var isL11 = layer.id === "l11";
 
-        {/* Colonne gauche — POWER (affiché au niveau L5, couvre L5-L12) */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-          {/* Espace pour L1→L4 (4 layers) : on mesure visuellement */}
-          <div id="power-spacer" style={{ flexShrink: 0 }} />
-          {powerPanel && (
-            <div style={{ position: "sticky", top: 0 }}>
-              {renderPanelBlock(powerPanel)}
-            </div>
-          )}
-        </div>
+        // Panneau gauche : Power apparaît à partir de L5
+        var showPowerLeft = idx >= idxL5;
+        // Panneau droit selon le layer
+        var rightPanel = isL5 ? thermalPanel : isL9 ? securityPanel : isL11 ? edgePanel : null;
 
-        {/* Colonne centre — tronc L1→L12 */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          {layers.map(function(layer, idx) {
-            return (
-              <div key={layer.id}>
-                {renderLayerBlock(layer)}
-                {layer.connBelow && <Connector text={layer.connBelow} />}
+        return (
+          <div key={layer.id}>
+            {/* Row : gauche | centre | droite */}
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "22% 56% 22%",
+              gap: 8,
+              alignItems: "start",
+              width: "100%",
+            }}>
+              {/* Colonne gauche — Power à partir de L5 */}
+              <div style={{ minHeight: 0 }}>
+                {isL5 && powerPanel && (
+                  <div>
+                    <div style={{ fontSize: 7, letterSpacing: 2, color: PANEL_COLORS.power.cc,
+                      fontFamily: "monospace", marginBottom: 3, fontWeight: 700, opacity: 0.7 }}>
+                      ◄ POWER INFRASTRUCTURE
+                    </div>
+                    {renderPanelBlock(powerPanel)}
+                  </div>
+                )}
               </div>
-            );
-          })}
-        </div>
 
-        {/* Colonne droite — THERMAL (L5), SECURITY (L9), EDGE (L11) */}
-        <div id="right-col" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {/* On va aligner dynamiquement en JS, pour l'instant on empile dans l'ordre */}
-          {thermalPanel  && renderPanelBlock(thermalPanel)}
-          {securityPanel && renderPanelBlock(securityPanel)}
-          {edgePanel     && renderPanelBlock(edgePanel)}
-        </div>
-      </div>
+              {/* Colonne centre — layer */}
+              <div>
+                {renderLayerBlock(layer)}
+              </div>
+
+              {/* Colonne droite — panneau spécifique au layer */}
+              <div style={{ minHeight: 0 }}>
+                {rightPanel && (
+                  <div>
+                    <div style={{ fontSize: 7, letterSpacing: 2,
+                      color: PANEL_COLORS[rightPanel.id] ? PANEL_COLORS[rightPanel.id].cc : "#94a3b8",
+                      fontFamily: "monospace", marginBottom: 3, fontWeight: 700, opacity: 0.7 }}>
+                      {rightPanel.badge} ►
+                    </div>
+                    {renderPanelBlock(rightPanel)}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Connector entre layers */}
+            {layer.connBelow && <Connector text={layer.connBelow} />}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -637,7 +671,7 @@ export default function MorningEdgeModule() {
       fontFamily: "'JetBrains Mono','Fira Code','SF Mono',monospace",
       padding: "16px 14px", borderRadius: 16,
       border: "1px solid #0D1828",
-      overflowX: "auto",
+      overflowX: "visible",
     }}>
       <style>{
         "@keyframes spin{to{transform:rotate(360deg)}}" +
