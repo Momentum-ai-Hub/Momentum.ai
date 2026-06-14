@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react"; 
+import { useState, useEffect, useCallback } from "react";
 import { getCouchesData } from "../lib/api";
 
 // ─────────────────────────────────────────────────────────────────
@@ -18,94 +18,387 @@ function pctFmt(v) {
   return (v > 0 ? "+" : "") + Number(v * 100).toFixed(2) + "%";
 }
 
-function fmt(n, d) {
-  var decimals = d !== undefined ? d : 2;
-  return n !== null && n !== undefined ? Number(n).toFixed(decimals) : "—";
-}
-
-// Rayon d'un cercle proportionnel au sqrt du nombre de tickers
-function circleRadius(nbTickers, baseMin, baseMax) {
-  var mn = baseMin || 22;
-  var mx = baseMax || 52;
-  return Math.min(mx, Math.max(mn, mn + Math.sqrt(nbTickers) * 4));
-}
-
-// Score agrégé d'une liste de clusters (moyenne des probabilités)
 function aggregateScore(clusters) {
   if (!clusters || clusters.length === 0) return { probability: 0.5, direction: "neutre", signalCount: 0 };
   var sum = 0;
-  var signals = 0;
-  for (var i = 0; i < clusters.length; i++) {
-    sum += clusters[i].probability;
-    signals += clusters[i].signalCount || 0;
-  }
+  for (var i = 0; i < clusters.length; i++) sum += clusters[i].probability;
   var prob = sum / clusters.length;
-  var dir  = prob >= 0.60 ? "haussier" : prob <= 0.42 ? "baissier" : "neutre";
-  return { probability: prob, direction: dir, signalCount: signals };
+  return {
+    probability: prob,
+    direction: prob >= 0.60 ? "haussier" : prob <= 0.42 ? "baissier" : "neutre",
+    signalCount: clusters.reduce(function(a, c) { return a + (c.signalCount || 0); }, 0),
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────
-// SCORE BADGE (cercle SVG, réutilisé depuis v2)
+// SECTION RECTANGLE — petit rectangle dans un layer
+// largeur proportionnelle au sqrt(nbTickers)
 // ─────────────────────────────────────────────────────────────────
 
-function ScoreBadge(props) {
-  var probability = props.probability;
-  var direction   = props.direction;
-  var size        = props.size || "md";
-  var color       = signalColor(direction, probability);
-  var pct         = Math.round(probability * 100);
-  var isFort      = (direction === "haussier" && probability >= 0.70) ||
-                    (direction === "baissier"  && probability <= 0.30);
-  var dim    = size === "sm" ? 46 : size === "lg" ? 70 : 56;
-  var radius = dim / 2 - 5;
-  var circ   = 2 * Math.PI * radius;
-  var offset = circ * (1 - probability);
-  var fsz    = size === "sm" ? 10 : size === "lg" ? 15 : 12;
+function SectionRect(props) {
+  var section   = props.section;
+  var cluster   = props.cluster;
+  var onSelect  = props.onSelect;
+  var isSelected = props.isSelected;
+
+  var nb    = section.tickers ? section.tickers.length : 0;
+  var prob  = cluster ? cluster.probability : 0.5;
+  var dir   = cluster ? cluster.direction   : "neutre";
+  var color = signalColor(dir, prob);
+  var isNeutre = dir === "neutre";
+
+  // Largeur proportionnelle : base 70px + sqrt(nb)*8
+  var w = Math.round(70 + Math.sqrt(nb) * 10);
 
   return (
-    <div style={{ position: "relative", width: dim, height: dim, flexShrink: 0 }}>
-      {isFort && (
+    <div
+      onClick={function() { onSelect(section, cluster); }}
+      style={{
+        width: w, minHeight: 68,
+        borderRadius: 10,
+        background: isNeutre ? "#0D1321" : color + "18",
+        border: "2px solid " + (isSelected ? color : color + (isNeutre ? "33" : "55")),
+        padding: "8px 10px",
+        cursor: "pointer",
+        display: "flex", flexDirection: "column", justifyContent: "space-between",
+        boxShadow: isSelected ? "0 0 12px " + color + "44" : "none",
+        transition: "all 0.15s",
+        flexShrink: 0,
+      }}
+    >
+      {/* Nom section */}
+      <div style={{
+        fontSize: 10, fontWeight: 700, color: "#D0DCE8",
+        lineHeight: 1.3, marginBottom: 6,
+        overflow: "hidden",
+        display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
+      }}>
+        {section.title || section.id}
+      </div>
+      {/* Score + nb tickers */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ fontSize: 11, fontWeight: 800, color: color }}>
+          {Math.round(prob * 100)}%
+        </span>
+        <span style={{ fontSize: 9, color: "#3D5166" }}>{nb}tk</span>
+      </div>
+      {/* Barre de score */}
+      <div style={{ height: 3, borderRadius: 2, background: "#1C2940", marginTop: 5, overflow: "hidden" }}>
         <div style={{
-          position: "absolute", top: -6, right: -6, zIndex: 2,
-          fontSize: 8, background: color, color: "#000",
-          borderRadius: 4, padding: "1px 4px", fontWeight: 900,
-        }}>🔥</div>
-      )}
-      <svg width={dim} height={dim} style={{ transform: "rotate(-90deg)" }}>
-        <circle cx={dim/2} cy={dim/2} r={radius} fill="none" stroke="#1C2940" strokeWidth={size === "sm" ? 3 : 4} />
-        <circle cx={dim/2} cy={dim/2} r={radius} fill="none" stroke={color}
-          strokeWidth={size === "sm" ? 3 : 4}
-          strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round"
-          style={{ transition: "stroke-dashoffset 0.9s cubic-bezier(.4,0,.2,1)" }}
-        />
-      </svg>
-      <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <span style={{ fontSize: fsz, fontWeight: 800, color: color, lineHeight: 1 }}>{pct}%</span>
+          height: "100%", borderRadius: 2,
+          width: Math.round(prob * 100) + "%",
+          background: color,
+          transition: "width 0.6s ease",
+        }} />
       </div>
     </div>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────
-// LEADER PILL
+// LAYER BLOCK — grand rectangle avec sections à l'intérieur
 // ─────────────────────────────────────────────────────────────────
 
-function LeaderPill(props) {
-  var leader = props.leader;
-  var color  = leader.changePct === null ? "#546E7A"
-    : leader.changePct > 0.003  ? "#00CC66"
-    : leader.changePct < -0.003 ? "#FF2244"
-    : "#78909C";
+function LayerBlock(props) {
+  var layer      = props.layer;
+  var sections   = props.sections;
+  var scoreMap   = props.scoreMap;
+  var onSelect   = props.onSelect;
+  var selectedId = props.selectedId;
+  var isPanel    = props.isPanel || false;
+
+  var layerClusters = sections.map(function(s) {
+    return scoreMap[s.id] || null;
+  }).filter(Boolean);
+  var agg   = aggregateScore(layerClusters);
+  var color = isPanel ? (props.panelColor || "#94a3b8") : (layer.cc || "#58a6ff");
+  var bg    = isPanel ? (props.panelBg || "#08090d") : (layer.bg || "#060e1a");
+  var totalTk = sections.reduce(function(a, s) { return a + (s.tickers ? s.tickers.length : 0); }, 0);
+  var aggColor = signalColor(agg.direction, agg.probability);
+
   return (
     <div style={{
-      background: "#0B1120", border: "1px solid " + color + "22",
-      borderRadius: 8, padding: "8px 12px", flexShrink: 0, minWidth: 100,
+      borderRadius: 12,
+      border: "2px solid " + color + "55",
+      background: bg,
+      overflow: "hidden",
+      width: "100%",
     }}>
-      <div style={{ fontSize: 7, letterSpacing: 2, color: "#3D5166", fontWeight: 700, marginBottom: 3 }}>
-        {leader.region} · {leader.sector}
+      {/* Header */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 10,
+        padding: "8px 14px",
+        borderBottom: "1px solid " + color + "22",
+        background: color + "11",
+      }}>
+        <span style={{
+          fontFamily: "monospace", fontSize: 9, fontWeight: 800,
+          letterSpacing: "0.12em", padding: "2px 7px",
+          borderRadius: 4, border: "1px solid " + color + "66",
+          color: color, flexShrink: 0,
+        }}>
+          {isPanel ? (layer.badge || layer.num) : layer.num}
+        </span>
+        <span style={{ fontSize: 12, fontWeight: 700, color: "#E8EEF4", flex: 1 }}>
+          {layer.name}
+        </span>
+        <span style={{ fontSize: 9, color: "#3D5166", whiteSpace: "nowrap" }}>
+          {totalTk} tickers
+        </span>
+        <span style={{
+          fontSize: 11, fontWeight: 800, color: aggColor,
+          minWidth: 36, textAlign: "right",
+        }}>
+          {Math.round(agg.probability * 100)}%
+        </span>
       </div>
-      <div style={{ fontSize: 11, fontWeight: 700, color: "#B0BEC5", marginBottom: 3 }}>{leader.name}</div>
-      <div style={{ fontSize: 14, fontWeight: 800, color: color }}>{pctFmt(leader.changePct)}</div>
+
+      {/* Sections — rangées de rectangles */}
+      <div style={{
+        padding: "10px 12px",
+        display: "flex", flexWrap: "wrap", gap: 8,
+      }}>
+        {sections.map(function(sec, idx) {
+          var cluster = scoreMap[sec.id] || null;
+          return (
+            <SectionRect
+              key={sec.id || idx}
+              section={sec}
+              cluster={cluster}
+              onSelect={onSelect}
+              isSelected={selectedId === sec.id}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// CONNECTOR
+// ─────────────────────────────────────────────────────────────────
+
+function Connector(props) {
+  return (
+    <div style={{
+      textAlign: "center", fontFamily: "monospace", fontSize: 9,
+      color: "#1C2940", padding: "3px 0",
+      letterSpacing: "0.06em", fontStyle: "italic",
+    }}>
+      ↓  {props.text}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// DETAIL PANEL — section sélectionnée, tous les tickers
+// ─────────────────────────────────────────────────────────────────
+
+function DetailPanel(props) {
+  var section = props.section;
+  var cluster = props.cluster;
+  var onClose = props.onClose;
+  var scoreMap = props.scoreMap;
+
+  if (!section) return null;
+
+  var prob  = cluster ? cluster.probability : 0.5;
+  var dir   = cluster ? cluster.direction   : "neutre";
+  var color = signalColor(dir, prob);
+
+  // Tous les tickers, triés : haussiers > neutres > baissiers
+  // Pour l'instant on n'a pas la perf individuelle par ticker dans scoreMap
+  // On affiche tous les tickers avec la couleur du cluster global
+  var tickers = section.tickers || [];
+
+  var directSignals = cluster ? (cluster.signals || []).filter(function(s) { return s.source !== "causal"; }) : [];
+  var causalSignals = cluster ? (cluster.signals || []).filter(function(s) { return s.source === "causal"; }) : [];
+
+  return (
+    <div style={{
+      background: "#060C18",
+      border: "2px solid " + color + "44",
+      borderRadius: 14, padding: 16, marginBottom: 14,
+    }}>
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+        <div>
+          <div style={{ fontSize: 8, letterSpacing: 2, color: color, marginBottom: 4, fontWeight: 800, fontFamily: "monospace" }}>
+            {section.id} · {dir.toUpperCase()} · {Math.round(prob * 100)}%
+          </div>
+          <div style={{ fontSize: 16, fontWeight: 800, color: "#E8EEF4" }}>
+            {section.title || section.id}
+          </div>
+          {section.note && (
+            <div style={{ fontSize: 9, color: "#3D5166", marginTop: 3, fontStyle: "italic" }}>{section.note}</div>
+          )}
+        </div>
+        <button onClick={onClose} style={{
+          background: "transparent", border: "1px solid #1C2940",
+          color: "#546E7A", borderRadius: 8, padding: "6px 12px",
+          cursor: "pointer", fontSize: 13, fontFamily: "inherit",
+        }}>✕</button>
+      </div>
+
+      {/* Tous les tickers */}
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ fontSize: 9, letterSpacing: 2, color: "#3D5166", fontWeight: 700, marginBottom: 8, fontFamily: "monospace" }}>
+          TICKERS ({tickers.length})
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {tickers.map(function(t) {
+            return (
+              <a key={t}
+                href={"https://finance.yahoo.com/quote/" + t}
+                target="_blank" rel="noopener noreferrer"
+                style={{
+                  background: "#0D1321",
+                  border: "1px solid " + color + "44",
+                  borderRadius: 6, padding: "5px 11px",
+                  fontSize: 12, fontWeight: 700,
+                  color: color, textDecoration: "none",
+                  fontFamily: "monospace",
+                  transition: "all 0.12s",
+                }}
+              >{t}</a>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Propagation causale */}
+      {causalSignals.length > 0 && (
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 9, letterSpacing: 2, color: "#00B4FF88", fontWeight: 700, marginBottom: 6, fontFamily: "monospace" }}>
+            PROPAGATION CAUSALE
+          </div>
+          {causalSignals.map(function(s, i) {
+            return (
+              <div key={i} style={{
+                background: "#080E1C", border: "1px solid #00B4FF22",
+                borderRadius: 8, padding: "7px 12px", marginBottom: 4,
+                fontSize: 11, color: "#78909C",
+              }}>
+                <span style={{ color: "#00B4FF", fontWeight: 700 }}>↗</span>
+                {" "}Reçu de{" "}
+                <span style={{ color: "#B0BEC5", fontWeight: 700 }}>{s.leader}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Leaders actifs */}
+      {directSignals.length > 0 && (
+        <div>
+          <div style={{ fontSize: 9, letterSpacing: 2, color: "#3D5166", fontWeight: 700, marginBottom: 8, fontFamily: "monospace" }}>
+            LEADERS OVERNIGHT ACTIFS
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+            {directSignals.map(function(s, i) {
+              var sc  = s.changePct > 0 ? "#00CC66" : "#FF2244";
+              var qc  = s.quality === "fort" ? "#00FF88" : s.quality === "modéré" ? "#FFD700" : "#FF6D00";
+              return (
+                <div key={i} style={{
+                  display: "grid", gridTemplateColumns: "1fr 60px 60px 55px",
+                  gap: 8, alignItems: "center",
+                  background: "#0D1321", borderRadius: 8, padding: "8px 12px",
+                }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "#B0BEC5" }}>
+                    {s.leader}
+                    <span style={{ fontSize: 8, color: "#3D5166", marginLeft: 5 }}>{s.region}</span>
+                  </span>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: sc, textAlign: "right" }}>
+                    {pctFmt(s.changePct)}
+                  </span>
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: 9, color: qc, fontWeight: 700 }}>{s.quality}</div>
+                    <div style={{ fontSize: 8, color: "#3D5166" }}>r={Number(s.corr).toFixed(2)}</div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 9, color: "#78909C" }}>
+                      {s.hitRate !== null ? Math.round(s.hitRate * 100) + "%" : "—"}
+                    </div>
+                    <div style={{ fontSize: 8, color: "#3D5166" }}>hit</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {cluster && cluster.signalCount === 0 && (
+        <div style={{ textAlign: "center", padding: "12px 0", fontSize: 12, color: "#3D5166" }}>
+          Aucun signal overnight suffisant cette nuit.
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// LEADERS PANEL — top 10 haussiers + top 10 baissiers
+// ─────────────────────────────────────────────────────────────────
+
+function LeadersPanel(props) {
+  var leaders = props.leaders || [];
+  if (!leaders.length) return null;
+
+  var available = leaders.filter(function(l) { return l.changePct !== null; });
+  available.sort(function(a, b) { return b.changePct - a.changePct; });
+
+  var top10    = available.slice(0, 10);
+  var bottom10 = available.slice(-10).reverse();
+
+  function LeaderRow(props) {
+    var l     = props.leader;
+    var color = l.changePct > 0.003 ? "#00CC66" : l.changePct < -0.003 ? "#FF2244" : "#546E7A";
+    return (
+      <div style={{
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+        padding: "6px 10px", borderBottom: "1px solid #0D1828",
+      }}>
+        <div>
+          <span style={{ fontSize: 12, fontWeight: 700, color: "#D0DCE8" }}>{l.name}</span>
+          <span style={{ fontSize: 9, color: "#3D5166", marginLeft: 6, fontFamily: "monospace" }}>
+            {l.region} · {l.sector}
+          </span>
+        </div>
+        <span style={{ fontSize: 13, fontWeight: 800, color: color, fontFamily: "monospace" }}>
+          {pctFmt(l.changePct)}
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+      {/* Top 10 haussiers */}
+      <div style={{
+        background: "#060C18", border: "1px solid #00CC6633",
+        borderRadius: 12, overflow: "hidden",
+      }}>
+        <div style={{ padding: "8px 12px", background: "#00CC6611", borderBottom: "1px solid #00CC6622" }}>
+          <span style={{ fontSize: 9, fontWeight: 800, color: "#00CC66", letterSpacing: 2, fontFamily: "monospace" }}>
+            ▲ TOP 10 HAUSSIERS
+          </span>
+        </div>
+        {top10.map(function(l) { return <LeaderRow key={l.symbol} leader={l} />; })}
+      </div>
+      {/* Top 10 baissiers */}
+      <div style={{
+        background: "#060C18", border: "1px solid #FF224433",
+        borderRadius: 12, overflow: "hidden",
+      }}>
+        <div style={{ padding: "8px 12px", background: "#FF224411", borderBottom: "1px solid #FF224422" }}>
+          <span style={{ fontSize: 9, fontWeight: 800, color: "#FF2244", letterSpacing: 2, fontFamily: "monospace" }}>
+            ▼ TOP 10 BAISSIERS
+          </span>
+        </div>
+        {bottom10.map(function(l) { return <LeaderRow key={l.symbol} leader={l} />; })}
+      </div>
     </div>
   );
 }
@@ -119,39 +412,36 @@ function SignalSummaryBar(props) {
   var haussiers = clusters.filter(function(c) { return c.direction === "haussier"; }).length;
   var baissiers = clusters.filter(function(c) { return c.direction === "baissier"; }).length;
   var neutres   = clusters.filter(function(c) { return c.direction === "neutre"; }).length;
-  var total     = clusters.length || 1;
   var forts     = clusters.filter(function(c) {
     return (c.direction === "haussier" && c.probability >= 0.70) ||
            (c.direction === "baissier" && c.probability <= 0.30);
   }).length;
+  var total = clusters.length || 1;
 
   return (
     <div style={{
-      display: "flex", gap: 8, flexWrap: "wrap", padding: "12px 16px",
-      background: "#060C18", border: "1px solid #111B2D",
-      borderRadius: 10, marginBottom: 16,
+      display: "flex", gap: 12, flexWrap: "wrap",
+      padding: "12px 16px", background: "#060C18",
+      border: "1px solid #111B2D", borderRadius: 10, marginBottom: 14,
     }}>
-      <div style={{ flex: 1, minWidth: 55 }}>
-        <div style={{ fontSize: 18, fontWeight: 800, color: "#00CC66" }}>{haussiers}</div>
-        <div style={{ fontSize: 8, color: "#3D5166", letterSpacing: 1 }}>HAUSSIER</div>
-      </div>
-      <div style={{ flex: 1, minWidth: 55 }}>
-        <div style={{ fontSize: 18, fontWeight: 800, color: "#FF2244" }}>{baissiers}</div>
-        <div style={{ fontSize: 8, color: "#3D5166", letterSpacing: 1 }}>BAISSIER</div>
-      </div>
-      <div style={{ flex: 1, minWidth: 55 }}>
-        <div style={{ fontSize: 18, fontWeight: 800, color: "#546E7A" }}>{neutres}</div>
-        <div style={{ fontSize: 8, color: "#3D5166", letterSpacing: 1 }}>NEUTRE</div>
-      </div>
-      <div style={{ flex: 1, minWidth: 55 }}>
-        <div style={{ fontSize: 18, fontWeight: 800, color: "#FFD700" }}>{forts}</div>
-        <div style={{ fontSize: 8, color: "#3D5166", letterSpacing: 1 }}>🔥 FORTS</div>
-      </div>
-      <div style={{ width: "100%", height: 5, background: "#111B2D", borderRadius: 4, marginTop: 4, overflow: "hidden" }}>
+      {[
+        { val: haussiers, label: "HAUSSIER", color: "#00CC66" },
+        { val: baissiers, label: "BAISSIER", color: "#FF2244" },
+        { val: neutres,   label: "NEUTRE",   color: "#546E7A" },
+        { val: forts,     label: "🔥 FORTS", color: "#FFD700" },
+      ].map(function(item) {
+        return (
+          <div key={item.label} style={{ flex: 1, minWidth: 55 }}>
+            <div style={{ fontSize: 20, fontWeight: 800, color: item.color }}>{item.val}</div>
+            <div style={{ fontSize: 8, color: "#3D5166", letterSpacing: 1, fontFamily: "monospace" }}>{item.label}</div>
+          </div>
+        );
+      })}
+      <div style={{ width: "100%", height: 5, background: "#111B2D", borderRadius: 4, overflow: "hidden" }}>
         <div style={{ display: "flex", height: "100%" }}>
-          <div style={{ width: (haussiers / total * 100) + "%", background: "#00CC66", transition: "width 0.8s ease" }} />
+          <div style={{ width: (haussiers / total * 100) + "%", background: "#00CC66", transition: "width 0.8s" }} />
           <div style={{ width: (neutres   / total * 100) + "%", background: "#1C2940" }} />
-          <div style={{ width: (baissiers / total * 100) + "%", background: "#FF2244", transition: "width 0.8s ease" }} />
+          <div style={{ width: (baissiers / total * 100) + "%", background: "#FF2244", transition: "width 0.8s" }} />
         </div>
       </div>
     </div>
@@ -159,461 +449,136 @@ function SignalSummaryBar(props) {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// MINI CIRCLE — sous-couche (section)
+// SUPPLY CHAIN MAP — layout 3 colonnes, image de référence
 // ─────────────────────────────────────────────────────────────────
 
-function MiniCircle(props) {
-  var section    = props.section;
-  var cluster    = props.cluster;
-  var onSelect   = props.onSelect;
-  var isSelected = props.isSelected;
+var PANEL_COLORS = {
+  power:    { cc: "#f87171", bg: "#0f0303" },
+  thermal:  { cc: "#38bdf8", bg: "#030b11" },
+  security: { cc: "#a3e635", bg: "#050902" },
+  edge:     { cc: "#fb923c", bg: "#0f0602" },
+  macro:    { cc: "#94a3b8", bg: "#08090d" },
+};
 
-  var nb    = section.tickers ? section.tickers.length : 0;
-  var r     = circleRadius(nb, 20, 44);
-  var dim   = r * 2;
-  var prob  = cluster ? cluster.probability : 0.5;
-  var dir   = cluster ? cluster.direction   : "neutre";
-  var color = signalColor(dir, prob);
-  var isFort = (dir === "haussier" && prob >= 0.70) || (dir === "baissier" && prob <= 0.30);
-  var isNeutre = dir === "neutre";
-
-  var bgOpacity = isNeutre ? "08" : "18";
-  var borderOpacity = isNeutre ? "22" : (isSelected ? "88" : "44");
-
-  return (
-    <div
-      onClick={function() { onSelect(section, cluster); }}
-      title={section.title || section.id}
-      style={{
-        width: dim, height: dim, borderRadius: "50%",
-        background: color + bgOpacity,
-        border: "1.5px solid " + color + borderOpacity,
-        display: "flex", flexDirection: "column",
-        alignItems: "center", justifyContent: "center",
-        cursor: "pointer", flexShrink: 0,
-        boxShadow: isSelected ? "0 0 10px " + color + "55" : "none",
-        transition: "all 0.18s",
-        opacity: isNeutre && !isSelected ? 0.5 : 1,
-        position: "relative",
-      }}
-    >
-      {isFort && (
-        <div style={{
-          position: "absolute", top: -4, right: -4,
-          fontSize: 7, background: color, color: "#000",
-          borderRadius: 3, padding: "0px 2px", fontWeight: 900, zIndex: 2,
-        }}>🔥</div>
-      )}
-      <div style={{ fontSize: 7, fontWeight: 800, color: color, lineHeight: 1, textAlign: "center" }}>
-        {Math.round(prob * 100)}%
-      </div>
-      <div style={{ fontSize: 6, color: color, opacity: 0.7, lineHeight: 1, marginTop: 1 }}>
-        {nb}tk
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────
-// BIG CIRCLE — couche principale (layer ou panel)
-// contient des MiniCircles
-// ─────────────────────────────────────────────────────────────────
-
-function BigCircle(props) {
-  var layer      = props.layer;
-  var sections   = props.sections;
-  var scoreMap   = props.scoreMap;
-  var onSelect   = props.onSelect;
-  var selectedId = props.selectedId;
-  var isPanel    = props.isPanel || false;
-
-  // Score agrégé du layer
-  var layerClusters = sections.map(function(s) { return scoreMap[s.id] || null; }).filter(Boolean);
-  var agg = aggregateScore(layerClusters);
-  var color = signalColor(agg.direction, agg.probability);
-  var isNeutre = agg.direction === "neutre";
-
-  var totalTk = sections.reduce(function(acc, s) {
-    return acc + (s.tickers ? s.tickers.length : 0);
-  }, 0);
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-      {/* Label au-dessus */}
-      <div style={{
-        fontSize: isPanel ? 7 : 8, fontWeight: 800, letterSpacing: isPanel ? 0 : 2,
-        color: layer.cc || color, textAlign: "center",
-        fontFamily: "monospace", maxWidth: 90, lineHeight: 1.2,
-      }}>
-        {isPanel ? layer.badge : (layer.num + " · " + layer.name)}
-      </div>
-
-      {/* Grand cercle */}
-      <div style={{
-        border: "2px solid " + color + (isNeutre ? "33" : "55"),
-        borderRadius: "50%", padding: 8,
-        background: color + (isNeutre ? "06" : "10"),
-        boxShadow: isNeutre ? "none" : "0 0 18px " + color + "22",
-        display: "flex", flexWrap: "wrap",
-        alignItems: "center", justifyContent: "center",
-        gap: 4,
-        minWidth: 80, minHeight: 80,
-        maxWidth: 200,
-      }}>
-        {sections.map(function(sec, idx) {
-          var cluster = scoreMap[sec.id] || null;
-          return (
-            <MiniCircle
-              key={sec.id || idx}
-              section={sec}
-              cluster={cluster}
-              onSelect={onSelect}
-              isSelected={selectedId === sec.id}
-            />
-          );
-        })}
-      </div>
-
-      {/* Score global + nb tickers */}
-      <div style={{ textAlign: "center" }}>
-        <div style={{ fontSize: 9, fontWeight: 700, color: color }}>
-          {agg.direction === "haussier" ? "▲ " : agg.direction === "baissier" ? "▼ " : "◆ "}
-          {Math.round(agg.probability * 100)}%
-        </div>
-        <div style={{ fontSize: 7, color: "#3D5166" }}>{totalTk} tickers</div>
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────
-// CONNECTOR
-// ─────────────────────────────────────────────────────────────────
-
-function Connector(props) {
-  var text = props.text;
-  return (
-    <div style={{
-      textAlign: "center", fontFamily: "monospace", fontSize: 8,
-      color: "#1C2940", padding: "2px 0", letterSpacing: "0.06em", fontStyle: "italic",
-    }}>
-      ↓  {text}
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────
-// DETAIL PANEL — section sélectionnée
-// ─────────────────────────────────────────────────────────────────
-
-function DetailPanel(props) {
-  var section = props.section;
-  var cluster = props.cluster;
-  var onClose = props.onClose;
-
-  if (!section) return null;
-
-  var prob  = cluster ? cluster.probability : 0.5;
-  var dir   = cluster ? cluster.direction   : "neutre";
-  var color = signalColor(dir, prob);
-
-  var directSignals = cluster ? (cluster.signals || []).filter(function(s) { return s.source !== "causal"; }) : [];
-  var causalSignals = cluster ? (cluster.signals || []).filter(function(s) { return s.source === "causal"; }) : [];
-
-  return (
-    <div style={{
-      background: "#060C18", border: "1px solid " + color + "44",
-      borderRadius: 16, padding: 18, marginBottom: 16,
-      animation: "slideDown 0.22s ease",
-    }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <ScoreBadge probability={prob} direction={dir} size="lg" />
-          <div>
-            <div style={{ fontSize: 8, letterSpacing: 2, color: color, marginBottom: 4, fontWeight: 800 }}>
-              {section.id} · {dir.toUpperCase()}
-            </div>
-            <div style={{ fontSize: 15, fontWeight: 800, color: "#E8EEF4" }}>
-              {section.title || section.id}
-            </div>
-            {section.note && (
-              <div style={{ fontSize: 9, color: "#3D5166", marginTop: 3, fontStyle: "italic" }}>
-                {section.note}
-              </div>
-            )}
-          </div>
-        </div>
-        <button onClick={onClose} style={{
-          background: "transparent", border: "1px solid #1C2940",
-          color: "#546E7A", borderRadius: 8, padding: "6px 12px",
-          cursor: "pointer", fontSize: 12, fontFamily: "inherit",
-        }}>✕</button>
-      </div>
-
-      {/* Tickers */}
-      <div style={{ marginBottom: 14 }}>
-        <div style={{ fontSize: 8, letterSpacing: 2, color: "#3D5166", fontWeight: 700, marginBottom: 6 }}>
-          TICKERS À SURVEILLER
-        </div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {(section.tickers || []).slice(0, 8).map(function(t) {
-            return (
-              <a key={t}
-                href={"https://finance.yahoo.com/quote/" + t}
-                target="_blank" rel="noopener noreferrer"
-                style={{
-                  background: "#0D1321", border: "1px solid " + color + "33",
-                  borderRadius: 6, padding: "4px 10px",
-                  fontSize: 11, fontWeight: 700, color: color, textDecoration: "none",
-                }}
-              >{t}</a>
-            );
-          })}
-          {(section.tickers || []).length > 8 && (
-            <span style={{ fontSize: 9, color: "#3D5166", alignSelf: "center" }}>
-              +{section.tickers.length - 8} autres
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Propagation causale reçue */}
-      {causalSignals.length > 0 && (
-        <div style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 8, letterSpacing: 2, color: "#00B4FF88", fontWeight: 700, marginBottom: 6 }}>
-            PROPAGATION CAUSALE REÇUE
-          </div>
-          {causalSignals.map(function(s, i) {
-            var pc = s.changePct > 0 ? "#00CC66" : s.changePct < 0 ? "#FF2244" : "#546E7A";
-            return (
-              <div key={i} style={{
-                background: "#080E1C", border: "1px solid #00B4FF22",
-                borderRadius: 8, padding: "8px 12px", marginBottom: 4,
-                fontSize: 10, color: "#78909C",
-              }}>
-                <span style={{ color: "#00B4FF", fontWeight: 700 }}>↗</span>
-                {" "}Signal transmis par{" "}
-                <span style={{ color: "#B0BEC5", fontWeight: 700 }}>{s.leader}</span>
-                <span style={{ color: pc, marginLeft: 8, fontWeight: 700 }}>
-                  {s.changePct > 0 ? "haussier" : s.changePct < 0 ? "baissier" : "neutre"}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Leaders overnight actifs */}
-      {directSignals.length > 0 && (
-        <div style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 8, letterSpacing: 2, color: "#3D5166", fontWeight: 700, marginBottom: 6 }}>
-            LEADERS OVERNIGHT ACTIFS
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-            {directSignals.map(function(s, i) {
-              var sc = s.changePct > 0 ? "#00CC66" : "#FF2244";
-              var qc = s.quality === "fort" ? "#00FF88" : s.quality === "modéré" ? "#FFD700" : "#FF6D00";
-              return (
-                <div key={i} style={{
-                  display: "grid", gridTemplateColumns: "1fr 55px 55px 55px",
-                  gap: 8, alignItems: "center",
-                  background: "#0D1321", borderRadius: 8, padding: "8px 12px",
-                }}>
-                  <div>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: "#B0BEC5" }}>{s.leader}</span>
-                    <span style={{ fontSize: 8, color: "#3D5166", marginLeft: 5 }}>{s.region}</span>
-                  </div>
-                  <span style={{ fontSize: 12, fontWeight: 800, color: sc, textAlign: "right" }}>
-                    {pctFmt(s.changePct)}
-                  </span>
-                  <div style={{ textAlign: "center" }}>
-                    <div style={{ fontSize: 8, color: qc, fontWeight: 700 }}>{s.quality}</div>
-                    <div style={{ fontSize: 7, color: "#3D5166" }}>{"r=" + fmt(s.corr, 2)}</div>
-                  </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ fontSize: 8, color: "#78909C" }}>
-                      {s.hitRate !== null ? fmt(s.hitRate * 100, 0) + "%" : "—"}
-                    </div>
-                    <div style={{ fontSize: 7, color: "#3D5166" }}>hit rate</div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {cluster && cluster.signalCount === 0 && (
-        <div style={{ textAlign: "center", padding: "16px 0", fontSize: 11, color: "#3D5166" }}>
-          Aucun signal overnight suffisant.
-          <br />
-          <span style={{ fontSize: 9 }}>Leaders corrélés n'ont pas bougé de plus de 0.3% cette nuit.</span>
-        </div>
-      )}
-
-      <div style={{
-        fontSize: 8, color: "#2A3A4A", marginTop: 12,
-        borderTop: "1px solid #111B2D", paddingTop: 10, lineHeight: 1.8,
-      }}>
-        ⚠ Pearson lag-1 · 252 sessions · Vérifier : already priced in · volume · Kelly avant toute position.
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────
-// CLUSTER MAP — layout 3 colonnes avec panneaux latéraux
-// ─────────────────────────────────────────────────────────────────
-
-function ClusterMap(props) {
+function SupplyChainMap(props) {
   var couchesData = props.couchesData;
   var scoreMap    = props.scoreMap;
   var onSelect    = props.onSelect;
   var selectedId  = props.selectedId;
 
-  var layers  = couchesData.layers;
-  var panels  = couchesData.panels;
+  var layers = couchesData.layers;
+  var panels = couchesData.panels;
 
-  // Index panels par id et par connectedAfter
+  // Index panels
   var panelById = {};
-  var panelsByLayer = {};
-  panels.forEach(function(p) {
-    panelById[p.id] = p;
-    if (p.connectedAfter) {
-      if (!panelsByLayer[p.connectedAfter]) panelsByLayer[p.connectedAfter] = [];
-      panelsByLayer[p.connectedAfter].push(p);
-    }
-  });
+  panels.forEach(function(p) { panelById[p.id] = p; });
 
-  var macroPanel = panelById["macro"];
+  var macroPanel    = panelById["macro"];
+  var powerPanel    = panelById["power"];
+  var thermalPanel  = panelById["thermal"];
+  var securityPanel = panelById["security"];
+  var edgePanel     = panelById["edge"];
 
-  // Sections d'un panel (aplatit subs + lists)
   function getSections(panel) {
     var sections = [];
     if (panel.lists) panel.lists.forEach(function(l) { sections.push(l); });
-    if (panel.subs) panel.subs.forEach(function(sub) {
+    if (panel.subs)  panel.subs.forEach(function(sub) {
       sub.lists.forEach(function(l) { sections.push(l); });
     });
     return sections;
   }
 
-  // Sections d'un layer
-  function getLayerSections(layer) {
-    return layer.lists || [];
-  }
-
-  // id d'une section (= clé dans scoreMap = CLUSTERS[].id)
-  function secId(sec) {
-    return sec.id || sec.list_title;
-  }
-
-  // Wrapper pour scoreMap lookup
-  function getScore(sec) {
-    return scoreMap[secId(sec)] || null;
-  }
-
-  // Couleur d'un panel basée sur son badge
-  var PANEL_COLORS = {
-    power:    "#f87171",
-    thermal:  "#38bdf8",
-    security: "#a3e635",
-    edge:     "#fb923c",
-    macro:    "#94a3b8",
-  };
-
-  function panelColor(p) {
-    return p.cc || PANEL_COLORS[p.id] || "#546E7A";
-  }
-
-  // Rendu d'un BigCircle pour un panel
-  function renderPanel(p, side) {
-    var sections = getSections(p);
-    var scoredSections = sections.map(function(s) { return Object.assign({}, s, { id: secId(s) }); });
+  function renderLayerBlock(layer) {
+    var sections = layer.lists || [];
     return (
-      <div key={p.id} style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-        <div style={{ fontSize: 6, letterSpacing: 1, color: panelColor(p), textAlign: "center",
-          fontFamily: "monospace", marginBottom: 2, opacity: 0.7 }}>
-          {side === "left" ? "◄" : "►"}
-        </div>
-        <BigCircle
-          layer={{ num: p.badge, name: p.name, badge: p.badge, cc: panelColor(p) }}
-          sections={scoredSections}
-          scoreMap={scoreMap}
-          onSelect={onSelect}
-          selectedId={selectedId}
-          isPanel={true}
-        />
-      </div>
+      <LayerBlock
+        layer={layer}
+        sections={sections}
+        scoreMap={scoreMap}
+        onSelect={onSelect}
+        selectedId={selectedId}
+      />
     );
   }
 
-  // Détermine si un panel va à gauche ou droite
-  // Power/Thermal → gauche (comme l'image de référence)
-  // Security → droite après L9
-  // Edge → droite après L11
-  var LEFT_PANELS  = ["power", "thermal"];
-  var RIGHT_PANELS = ["security", "edge"];
+  function renderPanelBlock(panel) {
+    if (!panel) return <div />;
+    var pc = PANEL_COLORS[panel.id] || { cc: "#94a3b8", bg: "#08090d" };
+    var sections = getSections(panel);
+    return (
+      <LayerBlock
+        layer={{ num: panel.badge, name: panel.name, badge: panel.badge, cc: pc.cc, bg: pc.bg, bc: pc.cc }}
+        sections={sections}
+        scoreMap={scoreMap}
+        onSelect={onSelect}
+        selectedId={selectedId}
+        isPanel={true}
+        panelColor={pc.cc}
+        panelBg={pc.bg}
+      />
+    );
+  }
+
+  // Lignes de la grille 3 colonnes :
+  // [POWER_col | tronc_centre | THERMAL_col]
+  // POWER occupe L5→L12 côté gauche
+  // THERMAL au niveau L5, SECURITY au niveau L9, EDGE au niveau L11 côté droit
+
+  // On construit le tronc comme liste de rows avec leur contexte panneau droit
+  var SIDE_RIGHT = {
+    l5: thermalPanel,
+    l9: securityPanel,
+    l11: edgePanel,
+  };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-      {/* MACRO — tout en haut, centré (L0) */}
+    <div style={{ minWidth: 700 }}>
+      {/* MACRO — centré, en haut */}
       {macroPanel && (
         <div style={{ marginBottom: 8 }}>
-          <div style={{ fontSize: 7, letterSpacing: 3, color: "#94a3b8", textAlign: "center",
+          <div style={{ fontSize: 8, letterSpacing: 3, color: "#94a3b8", textAlign: "center",
             fontFamily: "monospace", marginBottom: 4, fontWeight: 700 }}>
-            MACRO · WATCHLISTS — non relié
+            MACRO · WATCHLISTS — non relié au tronc
           </div>
-          <div style={{ display: "flex", justifyContent: "center" }}>
-            {renderPanel(macroPanel, "center")}
-          </div>
+          {renderPanelBlock(macroPanel)}
           <Connector text="parallel — non causal" />
         </div>
       )}
 
-      {/* L1 → L12 avec panneaux latéraux */}
-      {layers.map(function(layer) {
-        var layerSections = getLayerSections(layer);
-        var panelsHere    = panelsByLayer[layer.id] || [];
-        var leftPanels    = panelsHere.filter(function(p) { return LEFT_PANELS.indexOf(p.id) !== -1; });
-        var rightPanels   = panelsHere.filter(function(p) { return RIGHT_PANELS.indexOf(p.id) !== -1; });
+      {/* Grille 3 colonnes : LEFT (power) | CENTRE (L1-L12) | RIGHT (thermal/security/edge) */}
+      <div style={{ display: "grid", gridTemplateColumns: "220px 1fr 220px", gap: 10, alignItems: "start" }}>
 
-        return (
-          <div key={layer.id}>
-            {/* Ligne 3 colonnes : gauche | tronc | droite */}
-            <div style={{
-              display: "grid",
-              gridTemplateColumns: "1fr auto 1fr",
-              gap: 8, alignItems: "center",
-              minHeight: 120,
-            }}>
-              {/* Colonne gauche — panneaux Power/Thermal */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
-                {leftPanels.map(function(p) { return renderPanel(p, "left"); })}
-              </div>
-
-              {/* Tronc central — layer */}
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-                <BigCircle
-                  layer={layer}
-                  sections={layerSections}
-                  scoreMap={scoreMap}
-                  onSelect={onSelect}
-                  selectedId={selectedId}
-                  isPanel={false}
-                />
-              </div>
-
-              {/* Colonne droite — panneaux Security/Edge */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-start" }}>
-                {rightPanels.map(function(p) { return renderPanel(p, "right"); })}
-              </div>
+        {/* Colonne gauche — POWER (affiché au niveau L5, couvre L5-L12) */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+          {/* Espace pour L1→L4 (4 layers) : on mesure visuellement */}
+          <div id="power-spacer" style={{ flexShrink: 0 }} />
+          {powerPanel && (
+            <div style={{ position: "sticky", top: 0 }}>
+              {renderPanelBlock(powerPanel)}
             </div>
+          )}
+        </div>
 
-            {/* Connecteur vers la couche suivante */}
-            {layer.connBelow && <Connector text={layer.connBelow} />}
-          </div>
-        );
-      })}
+        {/* Colonne centre — tronc L1→L12 */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          {layers.map(function(layer, idx) {
+            return (
+              <div key={layer.id}>
+                {renderLayerBlock(layer)}
+                {layer.connBelow && <Connector text={layer.connBelow} />}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Colonne droite — THERMAL (L5), SECURITY (L9), EDGE (L11) */}
+        <div id="right-col" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {/* On va aligner dynamiquement en JS, pour l'instant on empile dans l'ordre */}
+          {thermalPanel  && renderPanelBlock(thermalPanel)}
+          {securityPanel && renderPanelBlock(securityPanel)}
+          {edgePanel     && renderPanelBlock(edgePanel)}
+        </div>
+      </div>
     </div>
   );
 }
@@ -631,7 +596,6 @@ export default function MorningEdgeModule() {
   const [selectedSec,  setSelectedSec]  = useState(null);
   const [selectedClus, setSelectedClus] = useState(null);
 
-  // Charger la structure L1-L12 depuis Supabase (une seule fois)
   useEffect(function() {
     getCouchesData()
       .then(function(d) { setCouchesData(d); })
@@ -639,8 +603,7 @@ export default function MorningEdgeModule() {
   }, []);
 
   const fetchApiData = useCallback(function(force) {
-    setLoading(true);
-    setError(null);
+    setLoading(true); setError(null);
     fetch("/api/morning-edge", { cache: force ? "no-store" : "default" })
       .then(function(res) { return res.json(); })
       .then(function(json) {
@@ -654,50 +617,29 @@ export default function MorningEdgeModule() {
 
   useEffect(function() { fetchApiData(false); }, [fetchApiData]);
 
-  // Auto-refresh 9h30 ET
-  useEffect(function() {
-    var interval = setInterval(function() {
-      var now    = new Date();
-      var etHour = now.getUTCHours() - 4;
-      var etMin  = now.getUTCMinutes();
-      if (etHour === 9 && etMin === 30) fetchApiData(true);
-    }, 60000);
-    return function() { clearInterval(interval); };
-  }, [fetchApiData]);
-
-  // Construire scoreMap : clusterId → scored cluster
   var scoreMap = {};
   if (apiData && apiData.clusters) {
-    apiData.clusters.forEach(function(c) {
-      scoreMap[c.clusterId] = c;
-    });
+    apiData.clusters.forEach(function(c) { scoreMap[c.clusterId] = c; });
   }
-
-  // Tous les clusters pour la summary bar
   var allClusters = apiData ? (apiData.clusters || []) : [];
 
   function handleSelect(section, cluster) {
     if (selectedSec && selectedSec.id === section.id) {
-      setSelectedSec(null);
-      setSelectedClus(null);
+      setSelectedSec(null); setSelectedClus(null);
     } else {
-      setSelectedSec(section);
-      setSelectedClus(cluster);
+      setSelectedSec(section); setSelectedClus(cluster);
     }
   }
-
-  var selectedId = selectedSec ? selectedSec.id : null;
 
   return (
     <div style={{
       background: "#04080F", color: "#B8C5D6",
       fontFamily: "'JetBrains Mono','Fira Code','SF Mono',monospace",
-      padding: "16px 12px", borderRadius: 16,
-      border: "1px solid #0D1828", minHeight: 400,
+      padding: "16px 14px", borderRadius: 16,
+      border: "1px solid #0D1828",
+      overflowX: "auto",
     }}>
       <style>{
-        "@keyframes fadeSlide{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}" +
-        "@keyframes slideDown{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}" +
         "@keyframes spin{to{transform:rotate(360deg)}}" +
         "@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}"
       }</style>
@@ -708,41 +650,38 @@ export default function MorningEdgeModule() {
         marginBottom: 14, paddingBottom: 12, borderBottom: "1px solid #0D1828",
       }}>
         <div>
-          <div style={{ fontSize: 8, letterSpacing: 4, color: "#00B4FF", fontWeight: 800, marginBottom: 3 }}>
+          <div style={{ fontSize: 8, letterSpacing: 4, color: "#00B4FF", fontWeight: 800, marginBottom: 3, fontFamily: "monospace" }}>
             MORNING EDGE
           </div>
-          <h2 style={{ fontSize: 16, fontWeight: 800, color: "#E8EEF4", margin: "0 0 2px" }}>
-            Cluster Map L1→L12
+          <h2 style={{ fontSize: 18, fontWeight: 800, color: "#E8EEF4", margin: "0 0 2px" }}>
+            AI Supply Chain Map
           </h2>
-          <p style={{ fontSize: 8, color: "#3D5166", margin: 0, letterSpacing: 1 }}>
-            Structure AI Supply Chain · Bayesian Scoring · Pearson lag-1
+          <p style={{ fontSize: 10, color: "#3D5166", margin: 0 }}>
+            L1→L12 · Bayesian Scoring · Structure Supabase
           </p>
         </div>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 5 }}>
           {apiData && (
             <div style={{
-              fontSize: 8, color: "#546E7A",
+              fontSize: 9, color: "#546E7A",
               background: "#0B1120", border: "1px solid #111B2D",
               borderRadius: 6, padding: "3px 8px",
             }}>
               <span style={{ color: "#00CC66", animation: "pulse 2s infinite" }}>●</span>
-              {" "}{apiData.meta && apiData.meta.leadersAvailable}/{apiData.meta && apiData.meta.totalLeaders} leaders
+              {" "}{apiData.meta && apiData.meta.leadersAvailable}/{apiData.meta && apiData.meta.totalLeaders} leaders actifs
             </div>
           )}
-          <button
-            onClick={function() { fetchApiData(true); }}
-            disabled={loading}
+          <button onClick={function() { fetchApiData(true); }} disabled={loading}
             style={{
               background: "#0B1120", color: "#00B4FF",
               border: "1px solid #00B4FF33", borderRadius: 6,
-              padding: "5px 10px", cursor: "pointer",
-              fontSize: 9, fontFamily: "inherit", fontWeight: 700, letterSpacing: 1,
-            }}
-          >
+              padding: "5px 12px", cursor: "pointer",
+              fontSize: 10, fontFamily: "inherit", fontWeight: 700, letterSpacing: 1,
+            }}>
             {loading ? "⟳" : "↺"} MAJ
           </button>
           {lastFetch && (
-            <div style={{ fontSize: 7, color: "#2A3A4A" }}>
+            <div style={{ fontSize: 8, color: "#2A3A4A" }}>
               {lastFetch.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
             </div>
           )}
@@ -751,20 +690,13 @@ export default function MorningEdgeModule() {
 
       {/* LOADING */}
       {loading && (
-        <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "32px 0" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "28px 0" }}>
           <div style={{
-            width: 24, height: 24,
+            width: 22, height: 22,
             border: "2px solid #111B2D", borderTop: "2px solid #00B4FF",
             borderRadius: "50%", animation: "spin 0.8s linear infinite", flexShrink: 0,
           }} />
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: "#546E7A", marginBottom: 4 }}>
-              Calcul des corrélations…
-            </div>
-            <div style={{ fontSize: 9, color: "#2A3A4A" }}>
-              {allClusters.length || "79"} sections · propagation L12→L1
-            </div>
-          </div>
+          <div style={{ fontSize: 13, color: "#546E7A" }}>Calcul des corrélations…</div>
         </div>
       )}
 
@@ -772,16 +704,16 @@ export default function MorningEdgeModule() {
       {error && !loading && (
         <div style={{
           background: "#1A0A0A", border: "1px solid #FF224433",
-          borderRadius: 8, padding: "14px 18px",
-          color: "#FF5252", fontSize: 10,
+          borderRadius: 8, padding: "12px 16px",
+          color: "#FF5252", fontSize: 12,
           display: "flex", justifyContent: "space-between", alignItems: "center",
           marginBottom: 12,
         }}>
           {"⚠ " + error}
           <button onClick={function() { fetchApiData(true); }} style={{
             background: "transparent", color: "#FF5252",
-            border: "1px solid #FF525244", borderRadius: 6,
-            padding: "3px 10px", cursor: "pointer", fontSize: 9, fontFamily: "inherit",
+            border: "1px solid #FF524444", borderRadius: 6,
+            padding: "3px 10px", cursor: "pointer", fontSize: 10, fontFamily: "inherit",
           }}>Réessayer</button>
         </div>
       )}
@@ -789,70 +721,56 @@ export default function MorningEdgeModule() {
       {/* CONTENT */}
       {!loading && (
         <div>
-          {/* Leaders overnight */}
+          {/* Leaders top/bottom 10 */}
           {apiData && apiData.leaders && (
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 7, letterSpacing: 2, color: "#3D5166", fontWeight: 700, marginBottom: 7 }}>
-                {"MARCHÉS LEADERS — " + new Date(apiData.computedAt).toLocaleString("fr-FR")}
-              </div>
-              <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 6 }}>
-                {apiData.leaders.map(function(l) {
-                  return <LeaderPill key={l.symbol} leader={l} />;
-                })}
-              </div>
-            </div>
+            <LeadersPanel leaders={apiData.leaders} />
           )}
 
-          {/* Résumé signaux */}
+          {/* Summary */}
           {allClusters.length > 0 && <SignalSummaryBar clusters={allClusters} />}
 
-          {/* Panel détail section sélectionnée */}
+          {/* Détail section sélectionnée */}
           {selectedSec && (
             <DetailPanel
               section={selectedSec}
               cluster={selectedClus}
+              scoreMap={scoreMap}
               onClose={function() { setSelectedSec(null); setSelectedClus(null); }}
             />
           )}
 
-          {/* CLUSTER MAP */}
+          {/* Cluster Map */}
           {couchesData ? (
-            <ClusterMap
+            <SupplyChainMap
               couchesData={couchesData}
               scoreMap={scoreMap}
               onSelect={handleSelect}
-              selectedId={selectedId}
+              selectedId={selectedSec ? selectedSec.id : null}
             />
           ) : (
-            <div style={{ fontSize: 10, color: "#3D5166", textAlign: "center", padding: "20px 0" }}>
-              ⏳ Chargement de la structure L1-L12…
+            <div style={{ fontSize: 11, color: "#3D5166", textAlign: "center", padding: "20px 0" }}>
+              ⏳ Chargement structure L1-L12…
             </div>
           )}
 
           {/* Légende */}
           <div style={{
-            display: "flex", gap: 10, flexWrap: "wrap",
+            display: "flex", gap: 16, flexWrap: "wrap",
             marginTop: 16, paddingTop: 12, borderTop: "1px solid #0D1828",
           }}>
             {[
               { color: "#00FF88", label: "Signal fort haussier (>70%)" },
               { color: "#00CC66", label: "Haussier probable" },
               { color: "#FF2244", label: "Baissier" },
-              { color: "#3D5166", label: "Neutre" },
-              { color: "#00B4FF", label: "Tap cercle = détail" },
+              { color: "#3D5166", label: "Neutre / pas de signal" },
             ].map(function(l) {
               return (
-                <div key={l.label} style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                  <div style={{ width: 7, height: 7, borderRadius: "50%", background: l.color, flexShrink: 0 }} />
-                  <span style={{ fontSize: 7, color: "#2A3A4A" }}>{l.label}</span>
+                <div key={l.label} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <div style={{ width: 10, height: 10, borderRadius: 3, background: l.color, flexShrink: 0 }} />
+                  <span style={{ fontSize: 9, color: "#3D5166" }}>{l.label}</span>
                 </div>
               );
             })}
-          </div>
-
-          <div style={{ fontSize: 8, color: "#1C2940", marginTop: 10, lineHeight: 1.8 }}>
-            ⚠ Pearson lag-1 · 252 sessions · Structure L1-L12 source Supabase.
-            Cache serveur 4h. Vérifier always priced in + guidance avant position.
           </div>
         </div>
       )}
