@@ -452,7 +452,7 @@ export async function getCouchesData() {
 
   const sectionsRes = await supabase
     .from('couches_sections')
-    .select('id, parent_type, parent_id, group_title, list_title, note, order_index, couches_section_tickers(ticker, order_index)')
+    .select('id, slug, parent_type, parent_id, group_title, list_title, note, order_index, couches_section_tickers(ticker, order_index)')
     .order('order_index');
   if (sectionsRes.error) throw new Error(sectionsRes.error.message);
 
@@ -474,6 +474,7 @@ export async function getCouchesData() {
           .sort(sortByOrder)
           .map(function (st) { return st.ticker; });
         return {
+          id: s.slug || String(s.id),
           title: s.list_title,
           note: s.note,
           groupTitle: s.group_title,
