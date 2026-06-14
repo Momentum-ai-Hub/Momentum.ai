@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { classifyTicker, classifyBatch, saveTickersToSupabase, loadPortfolioFromSupabase, getCouchesData } from '../lib/api';
+import { classifyTicker, classifyBatch, saveTickersToSupabase, loadPortfolioFromSupabase, getCouchesData } from '../lib/api'; 
 
 // ─── FAMILLES ─────────────────────────────────────────────────────────────────
 const FAMILLES = {
