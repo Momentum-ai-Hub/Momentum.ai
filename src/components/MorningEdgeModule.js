@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { COUCHES, LIENS_CAUSAUX } from "./MomentumModule";
+import { getCouchesData } from "../lib/api";
 
 // ─────────────────────────────────────────────────────────────────
 // HELPERS
@@ -23,38 +23,29 @@ function fmt(n, d) {
   return n !== null && n !== undefined ? Number(n).toFixed(decimals) : "—";
 }
 
-// Aplatir COUCHES en tableau plat de listes enrichies
-function getAllListes() {
-  var result = [];
-  COUCHES.forEach(function(couche) {
-    couche.listes.forEach(function(liste) {
-      result.push({
-        id:          liste.id,
-        nom:         liste.nom,
-        isIA:        liste.isIA,
-        tickers:     liste.tickers,
-        coucheId:    couche.id,
-        coucheLabel: couche.label,
-        coucheColor: couche.color,
-        coucheBg:    couche.bgColor,
-      });
-    });
-  });
-  return result;
+// Rayon d'un cercle proportionnel au sqrt du nombre de tickers
+function circleRadius(nbTickers, baseMin, baseMax) {
+  var mn = baseMin || 22;
+  var mx = baseMax || 52;
+  return Math.min(mx, Math.max(mn, mn + Math.sqrt(nbTickers) * 4));
 }
 
-// Trouver une liste par id dans COUCHES
-function findListeById(id) {
-  for (var i = 0; i < COUCHES.length; i++) {
-    for (var j = 0; j < COUCHES[i].listes.length; j++) {
-      if (COUCHES[i].listes[j].id === id) return COUCHES[i].listes[j];
-    }
+// Score agrégé d'une liste de clusters (moyenne des probabilités)
+function aggregateScore(clusters) {
+  if (!clusters || clusters.length === 0) return { probability: 0.5, direction: "neutre", signalCount: 0 };
+  var sum = 0;
+  var signals = 0;
+  for (var i = 0; i < clusters.length; i++) {
+    sum += clusters[i].probability;
+    signals += clusters[i].signalCount || 0;
   }
-  return null;
+  var prob = sum / clusters.length;
+  var dir  = prob >= 0.60 ? "haussier" : prob <= 0.42 ? "baissier" : "neutre";
+  return { probability: prob, direction: dir, signalCount: signals };
 }
 
 // ─────────────────────────────────────────────────────────────────
-// SCORE BADGE
+// SCORE BADGE (cercle SVG, réutilisé depuis v2)
 // ─────────────────────────────────────────────────────────────────
 
 function ScoreBadge(props) {
@@ -65,11 +56,11 @@ function ScoreBadge(props) {
   var pct         = Math.round(probability * 100);
   var isFort      = (direction === "haussier" && probability >= 0.70) ||
                     (direction === "baissier"  && probability <= 0.30);
-  var dim         = size === "sm" ? 46 : size === "lg" ? 70 : 56;
-  var radius      = dim / 2 - 5;
-  var circ        = 2 * Math.PI * radius;
-  var offset      = circ * (1 - probability);
-  var fsz         = size === "sm" ? 10 : size === "lg" ? 15 : 12;
+  var dim    = size === "sm" ? 46 : size === "lg" ? 70 : 56;
+  var radius = dim / 2 - 5;
+  var circ   = 2 * Math.PI * radius;
+  var offset = circ * (1 - probability);
+  var fsz    = size === "sm" ? 10 : size === "lg" ? 15 : 12;
 
   return (
     <div style={{ position: "relative", width: dim, height: dim, flexShrink: 0 }}>
@@ -78,27 +69,18 @@ function ScoreBadge(props) {
           position: "absolute", top: -6, right: -6, zIndex: 2,
           fontSize: 8, background: color, color: "#000",
           borderRadius: 4, padding: "1px 4px", fontWeight: 900,
-        }}>
-          🔥
-        </div>
+        }}>🔥</div>
       )}
       <svg width={dim} height={dim} style={{ transform: "rotate(-90deg)" }}>
-        <circle cx={dim / 2} cy={dim / 2} r={radius}
-          fill="none" stroke="#1C2940" strokeWidth={size === "sm" ? 3 : 4} />
-        <circle cx={dim / 2} cy={dim / 2} r={radius}
-          fill="none" stroke={color} strokeWidth={size === "sm" ? 3 : 4}
-          strokeDasharray={circ} strokeDashoffset={offset}
-          strokeLinecap="round"
+        <circle cx={dim/2} cy={dim/2} r={radius} fill="none" stroke="#1C2940" strokeWidth={size === "sm" ? 3 : 4} />
+        <circle cx={dim/2} cy={dim/2} r={radius} fill="none" stroke={color}
+          strokeWidth={size === "sm" ? 3 : 4}
+          strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round"
           style={{ transition: "stroke-dashoffset 0.9s cubic-bezier(.4,0,.2,1)" }}
         />
       </svg>
-      <div style={{
-        position: "absolute", inset: 0,
-        display: "flex", alignItems: "center", justifyContent: "center",
-      }}>
-        <span style={{ fontSize: fsz, fontWeight: 800, color: color, lineHeight: 1 }}>
-          {pct}%
-        </span>
+      <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <span style={{ fontSize: fsz, fontWeight: 800, color: color, lineHeight: 1 }}>{pct}%</span>
       </div>
     </div>
   );
@@ -110,28 +92,20 @@ function ScoreBadge(props) {
 
 function LeaderPill(props) {
   var leader = props.leader;
-  var color =
-    leader.changePct === null   ? "#546E7A"
+  var color  = leader.changePct === null ? "#546E7A"
     : leader.changePct > 0.003  ? "#00CC66"
     : leader.changePct < -0.003 ? "#FF2244"
     : "#78909C";
-
   return (
     <div style={{
-      background: "#0B1120",
-      border: "1px solid " + color + "22",
-      borderRadius: 8, padding: "8px 12px",
-      flexShrink: 0, minWidth: 100,
+      background: "#0B1120", border: "1px solid " + color + "22",
+      borderRadius: 8, padding: "8px 12px", flexShrink: 0, minWidth: 100,
     }}>
       <div style={{ fontSize: 7, letterSpacing: 2, color: "#3D5166", fontWeight: 700, marginBottom: 3 }}>
         {leader.region} · {leader.sector}
       </div>
-      <div style={{ fontSize: 11, fontWeight: 700, color: "#B0BEC5", marginBottom: 3 }}>
-        {leader.name}
-      </div>
-      <div style={{ fontSize: 14, fontWeight: 800, color: color }}>
-        {pctFmt(leader.changePct)}
-      </div>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#B0BEC5", marginBottom: 3 }}>{leader.name}</div>
+      <div style={{ fontSize: 14, fontWeight: 800, color: color }}>{pctFmt(leader.changePct)}</div>
     </div>
   );
 }
@@ -153,10 +127,8 @@ function SignalSummaryBar(props) {
 
   return (
     <div style={{
-      display: "flex", gap: 8, flexWrap: "wrap",
-      padding: "12px 16px",
-      background: "#060C18",
-      border: "1px solid #111B2D",
+      display: "flex", gap: 8, flexWrap: "wrap", padding: "12px 16px",
+      background: "#060C18", border: "1px solid #111B2D",
       borderRadius: 10, marginBottom: 16,
     }}>
       <div style={{ flex: 1, minWidth: 55 }}>
@@ -187,307 +159,223 @@ function SignalSummaryBar(props) {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// CLUSTER NODE — carte dans la map causale
+// MINI CIRCLE — sous-couche (section)
 // ─────────────────────────────────────────────────────────────────
 
-function ClusterNode(props) {
+function MiniCircle(props) {
+  var section    = props.section;
   var cluster    = props.cluster;
   var onSelect   = props.onSelect;
   var isSelected = props.isSelected;
-  var color      = signalColor(cluster.direction, cluster.probability);
-  var isNeutre   = cluster.direction === "neutre";
-  var isFort     = (cluster.direction === "haussier" && cluster.probability >= 0.70) ||
-                   (cluster.direction === "baissier"  && cluster.probability <= 0.30);
+
+  var nb    = section.tickers ? section.tickers.length : 0;
+  var r     = circleRadius(nb, 20, 44);
+  var dim   = r * 2;
+  var prob  = cluster ? cluster.probability : 0.5;
+  var dir   = cluster ? cluster.direction   : "neutre";
+  var color = signalColor(dir, prob);
+  var isFort = (dir === "haussier" && prob >= 0.70) || (dir === "baissier" && prob <= 0.30);
+  var isNeutre = dir === "neutre";
+
+  var bgOpacity = isNeutre ? "08" : "18";
+  var borderOpacity = isNeutre ? "22" : (isSelected ? "88" : "44");
 
   return (
     <div
-      onClick={function() { onSelect(cluster); }}
+      onClick={function() { onSelect(section, cluster); }}
+      title={section.title || section.id}
       style={{
-        background:   isSelected ? color + "14" : "#080E1C",
-        border:       "1px solid " + (isSelected ? color + "55" : isNeutre ? "#1C2940" : color + "44"),
-        borderRadius: 10,
-        padding:      "9px 12px",
-        cursor:       "pointer",
-        display:      "flex",
-        alignItems:   "center",
-        gap:          9,
-        opacity:      isNeutre && !isSelected ? 0.55 : 1,
-        flex:         "0 0 auto",
-        width:        "calc(50% - 6px)",
-        boxSizing:    "border-box",
-        transition:   "all 0.18s",
+        width: dim, height: dim, borderRadius: "50%",
+        background: color + bgOpacity,
+        border: "1.5px solid " + color + borderOpacity,
+        display: "flex", flexDirection: "column",
+        alignItems: "center", justifyContent: "center",
+        cursor: "pointer", flexShrink: 0,
+        boxShadow: isSelected ? "0 0 10px " + color + "55" : "none",
+        transition: "all 0.18s",
+        opacity: isNeutre && !isSelected ? 0.5 : 1,
+        position: "relative",
       }}
     >
-      <ScoreBadge probability={cluster.probability} direction={cluster.direction} size="sm" />
-      <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2 }}>
-          {isFort && (
-            <span style={{
-              fontSize: 7, background: color, color: "#000",
-              borderRadius: 3, padding: "1px 4px", fontWeight: 900, flexShrink: 0,
-            }}>FORT</span>
-          )}
-          {cluster.isIA && (
-            <span style={{
-              fontSize: 7, color: "#00B4FF",
-              border: "1px solid #00B4FF44",
-              borderRadius: 3, padding: "1px 4px", fontWeight: 700, flexShrink: 0,
-            }}>IA</span>
-          )}
-        </div>
+      {isFort && (
         <div style={{
-          fontSize: 10, fontWeight: 700,
-          color: isNeutre ? "#546E7A" : "#C8D8E8",
-          lineHeight: 1.2, whiteSpace: "nowrap",
-          overflow: "hidden", textOverflow: "ellipsis",
-        }}>
-          {cluster.nom}
-        </div>
-        <div style={{ fontSize: 8, color: color, marginTop: 2, fontWeight: 700, opacity: isNeutre ? 0.5 : 1 }}>
-          {cluster.direction === "haussier" ? "▲" : cluster.direction === "baissier" ? "▼" : "◆"}
-          {" "}{cluster.signalCount} signal{cluster.signalCount > 1 ? "s" : ""}
-        </div>
+          position: "absolute", top: -4, right: -4,
+          fontSize: 7, background: color, color: "#000",
+          borderRadius: 3, padding: "0px 2px", fontWeight: 900, zIndex: 2,
+        }}>🔥</div>
+      )}
+      <div style={{ fontSize: 7, fontWeight: 800, color: color, lineHeight: 1, textAlign: "center" }}>
+        {Math.round(prob * 100)}%
+      </div>
+      <div style={{ fontSize: 6, color: color, opacity: 0.7, lineHeight: 1, marginTop: 1 }}>
+        {nb}tk
       </div>
     </div>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────
-// LAYER ROW — une couche causale C0…C4
+// BIG CIRCLE — couche principale (layer ou panel)
+// contient des MiniCircles
 // ─────────────────────────────────────────────────────────────────
 
-function LayerRow(props) {
-  var couche     = props.couche;
-  var clusters   = props.clusters;
+function BigCircle(props) {
+  var layer      = props.layer;
+  var sections   = props.sections;
+  var scoreMap   = props.scoreMap;
   var onSelect   = props.onSelect;
   var selectedId = props.selectedId;
+  var isPanel    = props.isPanel || false;
 
-  var visible = clusters.filter(function(c) { return c.coucheId === couche.id; });
-  if (visible.length === 0) return null;
+  // Score agrégé du layer
+  var layerClusters = sections.map(function(s) { return scoreMap[s.id] || null; }).filter(Boolean);
+  var agg = aggregateScore(layerClusters);
+  var color = signalColor(agg.direction, agg.probability);
+  var isNeutre = agg.direction === "neutre";
+
+  var totalTk = sections.reduce(function(acc, s) {
+    return acc + (s.tickers ? s.tickers.length : 0);
+  }, 0);
 
   return (
-    <div style={{ marginBottom: 4 }}>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+      {/* Label au-dessus */}
       <div style={{
-        fontSize: 8, letterSpacing: 3, fontWeight: 800,
-        color: couche.color, marginBottom: 8, paddingLeft: 4,
+        fontSize: isPanel ? 7 : 8, fontWeight: 800, letterSpacing: isPanel ? 0 : 2,
+        color: layer.cc || color, textAlign: "center",
+        fontFamily: "monospace", maxWidth: 90, lineHeight: 1.2,
       }}>
-        {couche.label}
+        {isPanel ? layer.badge : (layer.num + " · " + layer.name)}
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, paddingBottom: 4 }}>
-        {visible.map(function(c) {
+
+      {/* Grand cercle */}
+      <div style={{
+        border: "2px solid " + color + (isNeutre ? "33" : "55"),
+        borderRadius: "50%", padding: 8,
+        background: color + (isNeutre ? "06" : "10"),
+        boxShadow: isNeutre ? "none" : "0 0 18px " + color + "22",
+        display: "flex", flexWrap: "wrap",
+        alignItems: "center", justifyContent: "center",
+        gap: 4,
+        minWidth: 80, minHeight: 80,
+        maxWidth: 200,
+      }}>
+        {sections.map(function(sec, idx) {
+          var cluster = scoreMap[sec.id] || null;
           return (
-            <ClusterNode
-              key={c.id}
-              cluster={c}
+            <MiniCircle
+              key={sec.id || idx}
+              section={sec}
+              cluster={cluster}
               onSelect={onSelect}
-              isSelected={selectedId === c.id}
+              isSelected={selectedId === sec.id}
             />
           );
         })}
       </div>
-      {couche.id !== "C4" && (
-        <div style={{ textAlign: "center", padding: "5px 0", color: "#1C2940", fontSize: 16, lineHeight: 1 }}>
-          ↓
+
+      {/* Score global + nb tickers */}
+      <div style={{ textAlign: "center" }}>
+        <div style={{ fontSize: 9, fontWeight: 700, color: color }}>
+          {agg.direction === "haussier" ? "▲ " : agg.direction === "baissier" ? "▼ " : "◆ "}
+          {Math.round(agg.probability * 100)}%
         </div>
-      )}
+        <div style={{ fontSize: 7, color: "#3D5166" }}>{totalTk} tickers</div>
+      </div>
     </div>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────
-// DETAIL PANEL — cluster sélectionné
+// CONNECTOR
+// ─────────────────────────────────────────────────────────────────
+
+function Connector(props) {
+  var text = props.text;
+  return (
+    <div style={{
+      textAlign: "center", fontFamily: "monospace", fontSize: 8,
+      color: "#1C2940", padding: "2px 0", letterSpacing: "0.06em", fontStyle: "italic",
+    }}>
+      ↓  {text}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// DETAIL PANEL — section sélectionnée
 // ─────────────────────────────────────────────────────────────────
 
 function DetailPanel(props) {
+  var section = props.section;
   var cluster = props.cluster;
   var onClose = props.onClose;
 
-  if (!cluster) return null;
+  if (!section) return null;
 
-  var color         = signalColor(cluster.direction, cluster.probability);
-  var directSignals = (cluster.signals || []).filter(function(s) { return s.source !== "causal"; });
-  var causalSignals = (cluster.signals || []).filter(function(s) { return s.source === "causal"; });
+  var prob  = cluster ? cluster.probability : 0.5;
+  var dir   = cluster ? cluster.direction   : "neutre";
+  var color = signalColor(dir, prob);
 
-  // Liens causaux lus depuis LIENS_CAUSAUX (source de vérité MomentumModule)
-  var causalParents = LIENS_CAUSAUX
-    .filter(function(pair) { return pair[1] === cluster.id; })
-    .map(function(pair) { return findListeById(pair[0]); })
-    .filter(Boolean);
-
-  var causalChildren = LIENS_CAUSAUX
-    .filter(function(pair) { return pair[0] === cluster.id; })
-    .map(function(pair) { return findListeById(pair[1]); })
-    .filter(Boolean);
+  var directSignals = cluster ? (cluster.signals || []).filter(function(s) { return s.source !== "causal"; }) : [];
+  var causalSignals = cluster ? (cluster.signals || []).filter(function(s) { return s.source === "causal"; }) : [];
 
   return (
     <div style={{
-      background: "#060C18",
-      border: "1px solid " + color + "44",
-      borderRadius: 16, padding: "18px",
-      marginBottom: 16,
+      background: "#060C18", border: "1px solid " + color + "44",
+      borderRadius: 16, padding: 18, marginBottom: 16,
       animation: "slideDown 0.22s ease",
     }}>
-      {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <ScoreBadge probability={cluster.probability} direction={cluster.direction} size="lg" />
+          <ScoreBadge probability={prob} direction={dir} size="lg" />
           <div>
             <div style={{ fontSize: 8, letterSpacing: 2, color: color, marginBottom: 4, fontWeight: 800 }}>
-              {cluster.coucheId} · {cluster.direction.toUpperCase()}
+              {section.id} · {dir.toUpperCase()}
             </div>
             <div style={{ fontSize: 15, fontWeight: 800, color: "#E8EEF4" }}>
-              {cluster.nom}
+              {section.title || section.id}
             </div>
-            {cluster.isIA && (
-              <div style={{
-                display: "inline-block", marginTop: 4,
-                fontSize: 8, color: "#00B4FF",
-                border: "1px solid #00B4FF44",
-                borderRadius: 4, padding: "2px 6px",
-                fontWeight: 700, letterSpacing: 1,
-              }}>
-                IA CHAIN
+            {section.note && (
+              <div style={{ fontSize: 9, color: "#3D5166", marginTop: 3, fontStyle: "italic" }}>
+                {section.note}
               </div>
             )}
           </div>
         </div>
-        <button
-          onClick={onClose}
-          style={{
-            background: "transparent", border: "1px solid #1C2940",
-            color: "#546E7A", borderRadius: 8, padding: "6px 12px",
-            cursor: "pointer", fontSize: 12, fontFamily: "inherit",
-          }}
-        >
-          ✕
-        </button>
+        <button onClick={onClose} style={{
+          background: "transparent", border: "1px solid #1C2940",
+          color: "#546E7A", borderRadius: 8, padding: "6px 12px",
+          cursor: "pointer", fontSize: 12, fontFamily: "inherit",
+        }}>✕</button>
       </div>
 
-      {/* Top tickers */}
+      {/* Tickers */}
       <div style={{ marginBottom: 14 }}>
         <div style={{ fontSize: 8, letterSpacing: 2, color: "#3D5166", fontWeight: 700, marginBottom: 6 }}>
           TICKERS À SURVEILLER
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {(cluster.tickers || []).slice(0, 6).map(function(t) {
+          {(section.tickers || []).slice(0, 8).map(function(t) {
             return (
-              <a
-                key={t}
+              <a key={t}
                 href={"https://finance.yahoo.com/quote/" + t}
-                target="_blank"
-                rel="noopener noreferrer"
+                target="_blank" rel="noopener noreferrer"
                 style={{
-                  background: "#0D1321",
-                  border: "1px solid " + color + "33",
+                  background: "#0D1321", border: "1px solid " + color + "33",
                   borderRadius: 6, padding: "4px 10px",
-                  fontSize: 11, fontWeight: 700,
-                  color: color, textDecoration: "none",
+                  fontSize: 11, fontWeight: 700, color: color, textDecoration: "none",
                 }}
-              >
-                {t}
-              </a>
+              >{t}</a>
             );
           })}
-          {(cluster.tickers || []).length > 6 && (
+          {(section.tickers || []).length > 8 && (
             <span style={{ fontSize: 9, color: "#3D5166", alignSelf: "center" }}>
-              +{cluster.tickers.length - 6} autres
+              +{section.tickers.length - 8} autres
             </span>
           )}
         </div>
       </div>
-
-      {/* Liens causaux depuis LIENS_CAUSAUX */}
-      {(causalParents.length > 0 || causalChildren.length > 0) && (
-        <div style={{
-          marginBottom: 14, background: "#080E1C",
-          border: "1px solid #111B2D",
-          borderRadius: 10, padding: "10px 14px",
-        }}>
-          {causalParents.length > 0 && (
-            <div style={{ marginBottom: 8 }}>
-              <div style={{ fontSize: 8, letterSpacing: 2, color: "#484f58", fontWeight: 700, marginBottom: 5 }}>
-                ALIMENTÉ PAR
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-                {causalParents.map(function(l) {
-                  return (
-                    <span key={l.id} style={{
-                      fontSize: 9, fontWeight: 600, color: "#f0b429",
-                      background: "rgba(240,180,41,0.1)",
-                      border: "1px solid rgba(240,180,41,0.2)",
-                      borderRadius: 6, padding: "3px 8px",
-                    }}>
-                      ↑ {l.nom}
-                    </span>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-          {causalChildren.length > 0 && (
-            <div>
-              <div style={{ fontSize: 8, letterSpacing: 2, color: "#484f58", fontWeight: 700, marginBottom: 5 }}>
-                ALIMENTE
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-                {causalChildren.map(function(l) {
-                  return (
-                    <span key={l.id} style={{
-                      fontSize: 9, fontWeight: 600, color: "#00B4FF",
-                      background: "rgba(0,180,255,0.08)",
-                      border: "1px solid rgba(0,180,255,0.2)",
-                      borderRadius: 6, padding: "3px 8px",
-                    }}>
-                      ↓ {l.nom}
-                    </span>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Signaux directs overnight */}
-      {directSignals.length > 0 && (
-        <div style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 8, letterSpacing: 2, color: "#3D5166", fontWeight: 700, marginBottom: 6 }}>
-            LEADERS OVERNIGHT ACTIFS
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-            {directSignals.map(function(s, i) {
-              var sc = s.changePct > 0 ? "#00CC66" : "#FF2244";
-              var qc = s.quality === "fort" ? "#00FF88" : s.quality === "modéré" ? "#FFD700" : "#FF6D00";
-              return (
-                <div key={i} style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 55px 55px 55px",
-                  gap: 8, alignItems: "center",
-                  background: "#0D1321", borderRadius: 8, padding: "8px 12px",
-                }}>
-                  <div>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: "#B0BEC5" }}>{s.leader}</span>
-                    <span style={{ fontSize: 8, color: "#3D5166", marginLeft: 5 }}>{s.region}</span>
-                  </div>
-                  <span style={{ fontSize: 12, fontWeight: 800, color: sc, textAlign: "right" }}>
-                    {pctFmt(s.changePct)}
-                  </span>
-                  <div style={{ textAlign: "center" }}>
-                    <div style={{ fontSize: 8, color: qc, fontWeight: 700 }}>{s.quality}</div>
-                    <div style={{ fontSize: 7, color: "#3D5166" }}>{"r=" + fmt(s.corr, 2)}</div>
-                  </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ fontSize: 8, color: "#78909C" }}>
-                      {s.hitRate !== null ? fmt(s.hitRate * 100, 0) + "%" : "—"}
-                    </div>
-                    <div style={{ fontSize: 7, color: "#3D5166" }}>hit rate</div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
 
       {/* Propagation causale reçue */}
       {causalSignals.length > 0 && (
@@ -515,7 +403,47 @@ function DetailPanel(props) {
         </div>
       )}
 
-      {cluster.signalCount === 0 && (
+      {/* Leaders overnight actifs */}
+      {directSignals.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 8, letterSpacing: 2, color: "#3D5166", fontWeight: 700, marginBottom: 6 }}>
+            LEADERS OVERNIGHT ACTIFS
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+            {directSignals.map(function(s, i) {
+              var sc = s.changePct > 0 ? "#00CC66" : "#FF2244";
+              var qc = s.quality === "fort" ? "#00FF88" : s.quality === "modéré" ? "#FFD700" : "#FF6D00";
+              return (
+                <div key={i} style={{
+                  display: "grid", gridTemplateColumns: "1fr 55px 55px 55px",
+                  gap: 8, alignItems: "center",
+                  background: "#0D1321", borderRadius: 8, padding: "8px 12px",
+                }}>
+                  <div>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#B0BEC5" }}>{s.leader}</span>
+                    <span style={{ fontSize: 8, color: "#3D5166", marginLeft: 5 }}>{s.region}</span>
+                  </div>
+                  <span style={{ fontSize: 12, fontWeight: 800, color: sc, textAlign: "right" }}>
+                    {pctFmt(s.changePct)}
+                  </span>
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: 8, color: qc, fontWeight: 700 }}>{s.quality}</div>
+                    <div style={{ fontSize: 7, color: "#3D5166" }}>{"r=" + fmt(s.corr, 2)}</div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 8, color: "#78909C" }}>
+                      {s.hitRate !== null ? fmt(s.hitRate * 100, 0) + "%" : "—"}
+                    </div>
+                    <div style={{ fontSize: 7, color: "#3D5166" }}>hit rate</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {cluster && cluster.signalCount === 0 && (
         <div style={{ textAlign: "center", padding: "16px 0", fontSize: 11, color: "#3D5166" }}>
           Aucun signal overnight suffisant.
           <br />
@@ -527,9 +455,165 @@ function DetailPanel(props) {
         fontSize: 8, color: "#2A3A4A", marginTop: 12,
         borderTop: "1px solid #111B2D", paddingTop: 10, lineHeight: 1.8,
       }}>
-        ⚠ Pearson lag-1 · 252 sessions · Liens causaux : LIENS_CAUSAUX (MomentumModule)
-        · Vérifier : already priced in · volume · Kelly avant toute position.
+        ⚠ Pearson lag-1 · 252 sessions · Vérifier : already priced in · volume · Kelly avant toute position.
       </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// CLUSTER MAP — layout 3 colonnes avec panneaux latéraux
+// ─────────────────────────────────────────────────────────────────
+
+function ClusterMap(props) {
+  var couchesData = props.couchesData;
+  var scoreMap    = props.scoreMap;
+  var onSelect    = props.onSelect;
+  var selectedId  = props.selectedId;
+
+  var layers  = couchesData.layers;
+  var panels  = couchesData.panels;
+
+  // Index panels par id et par connectedAfter
+  var panelById = {};
+  var panelsByLayer = {};
+  panels.forEach(function(p) {
+    panelById[p.id] = p;
+    if (p.connectedAfter) {
+      if (!panelsByLayer[p.connectedAfter]) panelsByLayer[p.connectedAfter] = [];
+      panelsByLayer[p.connectedAfter].push(p);
+    }
+  });
+
+  var macroPanel = panelById["macro"];
+
+  // Sections d'un panel (aplatit subs + lists)
+  function getSections(panel) {
+    var sections = [];
+    if (panel.lists) panel.lists.forEach(function(l) { sections.push(l); });
+    if (panel.subs) panel.subs.forEach(function(sub) {
+      sub.lists.forEach(function(l) { sections.push(l); });
+    });
+    return sections;
+  }
+
+  // Sections d'un layer
+  function getLayerSections(layer) {
+    return layer.lists || [];
+  }
+
+  // id d'une section (= clé dans scoreMap = CLUSTERS[].id)
+  function secId(sec) {
+    return sec.id || sec.list_title;
+  }
+
+  // Wrapper pour scoreMap lookup
+  function getScore(sec) {
+    return scoreMap[secId(sec)] || null;
+  }
+
+  // Couleur d'un panel basée sur son badge
+  var PANEL_COLORS = {
+    power:    "#f87171",
+    thermal:  "#38bdf8",
+    security: "#a3e635",
+    edge:     "#fb923c",
+    macro:    "#94a3b8",
+  };
+
+  function panelColor(p) {
+    return p.cc || PANEL_COLORS[p.id] || "#546E7A";
+  }
+
+  // Rendu d'un BigCircle pour un panel
+  function renderPanel(p, side) {
+    var sections = getSections(p);
+    var scoredSections = sections.map(function(s) { return Object.assign({}, s, { id: secId(s) }); });
+    return (
+      <div key={p.id} style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+        <div style={{ fontSize: 6, letterSpacing: 1, color: panelColor(p), textAlign: "center",
+          fontFamily: "monospace", marginBottom: 2, opacity: 0.7 }}>
+          {side === "left" ? "◄" : "►"}
+        </div>
+        <BigCircle
+          layer={{ num: p.badge, name: p.name, badge: p.badge, cc: panelColor(p) }}
+          sections={scoredSections}
+          scoreMap={scoreMap}
+          onSelect={onSelect}
+          selectedId={selectedId}
+          isPanel={true}
+        />
+      </div>
+    );
+  }
+
+  // Détermine si un panel va à gauche ou droite
+  // Power/Thermal → gauche (comme l'image de référence)
+  // Security → droite après L9
+  // Edge → droite après L11
+  var LEFT_PANELS  = ["power", "thermal"];
+  var RIGHT_PANELS = ["security", "edge"];
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+      {/* MACRO — tout en haut, centré (L0) */}
+      {macroPanel && (
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ fontSize: 7, letterSpacing: 3, color: "#94a3b8", textAlign: "center",
+            fontFamily: "monospace", marginBottom: 4, fontWeight: 700 }}>
+            MACRO · WATCHLISTS — non relié
+          </div>
+          <div style={{ display: "flex", justifyContent: "center" }}>
+            {renderPanel(macroPanel, "center")}
+          </div>
+          <Connector text="parallel — non causal" />
+        </div>
+      )}
+
+      {/* L1 → L12 avec panneaux latéraux */}
+      {layers.map(function(layer) {
+        var layerSections = getLayerSections(layer);
+        var panelsHere    = panelsByLayer[layer.id] || [];
+        var leftPanels    = panelsHere.filter(function(p) { return LEFT_PANELS.indexOf(p.id) !== -1; });
+        var rightPanels   = panelsHere.filter(function(p) { return RIGHT_PANELS.indexOf(p.id) !== -1; });
+
+        return (
+          <div key={layer.id}>
+            {/* Ligne 3 colonnes : gauche | tronc | droite */}
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "1fr auto 1fr",
+              gap: 8, alignItems: "center",
+              minHeight: 120,
+            }}>
+              {/* Colonne gauche — panneaux Power/Thermal */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
+                {leftPanels.map(function(p) { return renderPanel(p, "left"); })}
+              </div>
+
+              {/* Tronc central — layer */}
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                <BigCircle
+                  layer={layer}
+                  sections={layerSections}
+                  scoreMap={scoreMap}
+                  onSelect={onSelect}
+                  selectedId={selectedId}
+                  isPanel={false}
+                />
+              </div>
+
+              {/* Colonne droite — panneaux Security/Edge */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-start" }}>
+                {rightPanels.map(function(p) { return renderPanel(p, "right"); })}
+              </div>
+            </div>
+
+            {/* Connecteur vers la couche suivante */}
+            {layer.connBelow && <Connector text={layer.connBelow} />}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -539,150 +623,124 @@ function DetailPanel(props) {
 // ─────────────────────────────────────────────────────────────────
 
 export default function MorningEdgeModule() {
-  const [data, setData]           = useState(null);
-  const [loading, setLoading]     = useState(true);
-  const [error, setError]         = useState(null);
-  const [lastFetch, setLastFetch] = useState(null);
-  const [selected, setSelected]   = useState(null);
-  const [view, setView]           = useState("map");
+  const [apiData,      setApiData]      = useState(null);
+  const [couchesData,  setCouchesData]  = useState(null);
+  const [loading,      setLoading]      = useState(true);
+  const [error,        setError]        = useState(null);
+  const [lastFetch,    setLastFetch]    = useState(null);
+  const [selectedSec,  setSelectedSec]  = useState(null);
+  const [selectedClus, setSelectedClus] = useState(null);
 
-  // Source de vérité : toutes les listes aplaties depuis COUCHES
-  const allListes = getAllListes();
+  // Charger la structure L1-L12 depuis Supabase (une seule fois)
+  useEffect(function() {
+    getCouchesData()
+      .then(function(d) { setCouchesData(d); })
+      .catch(function(e) { console.error("getCouchesData:", e); });
+  }, []);
 
-  const fetchData = useCallback(function(force) {
+  const fetchApiData = useCallback(function(force) {
     setLoading(true);
     setError(null);
     fetch("/api/morning-edge", { cache: force ? "no-store" : "default" })
       .then(function(res) { return res.json(); })
       .then(function(json) {
         if (!json.success) throw new Error(json.error || "Erreur API");
-        setData(json);
+        setApiData(json);
         setLastFetch(new Date());
       })
       .catch(function(e) { setError(e.message); })
       .finally(function() { setLoading(false); });
   }, []);
 
-  useEffect(function() { fetchData(false); }, [fetchData]);
+  useEffect(function() { fetchApiData(false); }, [fetchApiData]);
 
-  // Auto-refresh à 9h30 ET
+  // Auto-refresh 9h30 ET
   useEffect(function() {
     var interval = setInterval(function() {
       var now    = new Date();
       var etHour = now.getUTCHours() - 4;
       var etMin  = now.getUTCMinutes();
-      if (etHour === 9 && etMin === 30) fetchData(true);
+      if (etHour === 9 && etMin === 30) fetchApiData(true);
     }, 60000);
     return function() { clearInterval(interval); };
-  }, [fetchData]);
+  }, [fetchApiData]);
 
-  // Fusionner les scores API avec la structure COUCHES
-  // L'API indexe ses clusters par liste.id (clusterId = liste.id)
-  function buildScoredListes(apiClusters) {
-    var scoreMap = {};
-    if (apiClusters && apiClusters.length > 0) {
-      apiClusters.forEach(function(c) {
-        scoreMap[c.clusterId] = c;
-      });
+  // Construire scoreMap : clusterId → scored cluster
+  var scoreMap = {};
+  if (apiData && apiData.clusters) {
+    apiData.clusters.forEach(function(c) {
+      scoreMap[c.clusterId] = c;
+    });
+  }
+
+  // Tous les clusters pour la summary bar
+  var allClusters = apiData ? (apiData.clusters || []) : [];
+
+  function handleSelect(section, cluster) {
+    if (selectedSec && selectedSec.id === section.id) {
+      setSelectedSec(null);
+      setSelectedClus(null);
+    } else {
+      setSelectedSec(section);
+      setSelectedClus(cluster);
     }
-    return allListes.map(function(liste) {
-      var score = scoreMap[liste.id];
-      if (score) {
-        return Object.assign({}, liste, {
-          probability: score.probability,
-          direction:   score.direction,
-          confidence:  score.confidence,
-          signalCount: score.signalCount,
-          signals:     score.signals,
-        });
-      }
-      return Object.assign({}, liste, {
-        probability: 0.50,
-        direction:   "neutre",
-        confidence:  0,
-        signalCount: 0,
-        signals:     [],
-      });
-    });
   }
 
-  var scoredListes = buildScoredListes(data ? data.clusters : []);
-
-  function handleSelect(cluster) {
-    setSelected(function(prev) {
-      return prev && prev.id === cluster.id ? null : cluster;
-    });
-  }
+  var selectedId = selectedSec ? selectedSec.id : null;
 
   return (
     <div style={{
-      background: "#04080F",
-      color: "#B8C5D6",
-      fontFamily: "'JetBrains Mono', 'Fira Code', 'SF Mono', monospace",
-      padding: "20px 16px",
-      borderRadius: 16,
-      border: "1px solid #0D1828",
-      minHeight: 400,
+      background: "#04080F", color: "#B8C5D6",
+      fontFamily: "'JetBrains Mono','Fira Code','SF Mono',monospace",
+      padding: "16px 12px", borderRadius: 16,
+      border: "1px solid #0D1828", minHeight: 400,
     }}>
       <style>{
-        "@keyframes fadeSlide { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }" +
-        "@keyframes slideDown { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }" +
-        "@keyframes spin { to { transform:rotate(360deg); } }" +
-        "@keyframes pulse { 0%,100%{opacity:1;}50%{opacity:0.3;} }"
+        "@keyframes fadeSlide{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}" +
+        "@keyframes slideDown{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}" +
+        "@keyframes spin{to{transform:rotate(360deg)}}" +
+        "@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}"
       }</style>
 
       {/* HEADER */}
       <div style={{
         display: "flex", justifyContent: "space-between", alignItems: "flex-start",
-        marginBottom: 16, paddingBottom: 14, borderBottom: "1px solid #0D1828",
+        marginBottom: 14, paddingBottom: 12, borderBottom: "1px solid #0D1828",
       }}>
         <div>
-          <div style={{ fontSize: 8, letterSpacing: 4, color: "#00B4FF", fontWeight: 800, marginBottom: 4 }}>
+          <div style={{ fontSize: 8, letterSpacing: 4, color: "#00B4FF", fontWeight: 800, marginBottom: 3 }}>
             MORNING EDGE
           </div>
-          <h2 style={{ fontSize: 17, fontWeight: 800, color: "#E8EEF4", margin: "0 0 3px" }}>
-            Causal Signal Map
+          <h2 style={{ fontSize: 16, fontWeight: 800, color: "#E8EEF4", margin: "0 0 2px" }}>
+            Cluster Map L1→L12
           </h2>
-          <p style={{ fontSize: 9, color: "#3D5166", margin: 0, letterSpacing: 1 }}>
-            {allListes.length} listes · {LIENS_CAUSAUX.length} liens · Source: MomentumModule
+          <p style={{ fontSize: 8, color: "#3D5166", margin: 0, letterSpacing: 1 }}>
+            Structure AI Supply Chain · Bayesian Scoring · Pearson lag-1
           </p>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
-          {data && (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 5 }}>
+          {apiData && (
             <div style={{
               fontSize: 8, color: "#546E7A",
               background: "#0B1120", border: "1px solid #111B2D",
               borderRadius: 6, padding: "3px 8px",
             }}>
               <span style={{ color: "#00CC66", animation: "pulse 2s infinite" }}>●</span>
-              {" "}{data.meta && data.meta.leadersAvailable}/{data.meta && data.meta.totalLeaders} leaders
+              {" "}{apiData.meta && apiData.meta.leadersAvailable}/{apiData.meta && apiData.meta.totalLeaders} leaders
             </div>
           )}
-          <div style={{ display: "flex", gap: 6 }}>
-            <button
-              onClick={function() { setView(function(v) { return v === "map" ? "list" : "map"; }); }}
-              style={{
-                background: "#0B1120", color: "#00B4FF",
-                border: "1px solid #00B4FF33", borderRadius: 6,
-                padding: "5px 10px", cursor: "pointer",
-                fontSize: 9, fontFamily: "inherit", fontWeight: 700, letterSpacing: 1,
-              }}
-            >
-              {view === "map" ? "⊟ LISTE" : "⊞ MAP"}
-            </button>
-            <button
-              onClick={function() { fetchData(true); }}
-              disabled={loading}
-              style={{
-                background: "#0B1120", color: "#00B4FF",
-                border: "1px solid #00B4FF33", borderRadius: 6,
-                padding: "5px 10px", cursor: "pointer",
-                fontSize: 9, fontFamily: "inherit", fontWeight: 700, letterSpacing: 1,
-              }}
-            >
-              {loading ? "⟳" : "↺"} MAJ
-            </button>
-          </div>
+          <button
+            onClick={function() { fetchApiData(true); }}
+            disabled={loading}
+            style={{
+              background: "#0B1120", color: "#00B4FF",
+              border: "1px solid #00B4FF33", borderRadius: 6,
+              padding: "5px 10px", cursor: "pointer",
+              fontSize: 9, fontFamily: "inherit", fontWeight: 700, letterSpacing: 1,
+            }}
+          >
+            {loading ? "⟳" : "↺"} MAJ
+          </button>
           {lastFetch && (
             <div style={{ fontSize: 7, color: "#2A3A4A" }}>
               {lastFetch.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
@@ -704,7 +762,7 @@ export default function MorningEdgeModule() {
               Calcul des corrélations…
             </div>
             <div style={{ fontSize: 9, color: "#2A3A4A" }}>
-              {allListes.length} listes · {LIENS_CAUSAUX.length} liens causaux · propagation C0→C4
+              {allClusters.length || "79"} sections · propagation L12→L1
             </div>
           </div>
         </div>
@@ -720,17 +778,11 @@ export default function MorningEdgeModule() {
           marginBottom: 12,
         }}>
           {"⚠ " + error}
-          <button
-            onClick={function() { fetchData(true); }}
-            style={{
-              background: "transparent", color: "#FF5252",
-              border: "1px solid #FF525244", borderRadius: 6,
-              padding: "3px 10px", cursor: "pointer",
-              fontSize: 9, fontFamily: "inherit",
-            }}
-          >
-            Réessayer
-          </button>
+          <button onClick={function() { fetchApiData(true); }} style={{
+            background: "transparent", color: "#FF5252",
+            border: "1px solid #FF525244", borderRadius: 6,
+            padding: "3px 10px", cursor: "pointer", fontSize: 9, fontFamily: "inherit",
+          }}>Réessayer</button>
         </div>
       )}
 
@@ -738,13 +790,13 @@ export default function MorningEdgeModule() {
       {!loading && (
         <div>
           {/* Leaders overnight */}
-          {data && data.leaders && (
-            <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 7, letterSpacing: 2, color: "#3D5166", fontWeight: 700, marginBottom: 8 }}>
-                {"MARCHÉS LEADERS — " + new Date(data.computedAt).toLocaleString("fr-FR")}
+          {apiData && apiData.leaders && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 7, letterSpacing: 2, color: "#3D5166", fontWeight: 700, marginBottom: 7 }}>
+                {"MARCHÉS LEADERS — " + new Date(apiData.computedAt).toLocaleString("fr-FR")}
               </div>
               <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 6 }}>
-                {data.leaders.map(function(l) {
+                {apiData.leaders.map(function(l) {
                   return <LeaderPill key={l.symbol} leader={l} />;
                 })}
               </div>
@@ -752,112 +804,42 @@ export default function MorningEdgeModule() {
           )}
 
           {/* Résumé signaux */}
-          {scoredListes.length > 0 && (
-            <SignalSummaryBar clusters={scoredListes} />
-          )}
+          {allClusters.length > 0 && <SignalSummaryBar clusters={allClusters} />}
 
-          {/* Panel détail */}
-          {selected && (
+          {/* Panel détail section sélectionnée */}
+          {selectedSec && (
             <DetailPanel
-              cluster={selected}
-              onClose={function() { setSelected(null); }}
+              section={selectedSec}
+              cluster={selectedClus}
+              onClose={function() { setSelectedSec(null); setSelectedClus(null); }}
             />
           )}
 
-          {/* VUE MAP C0→C4 — itère sur COUCHES directement */}
-          {view === "map" && (
-            <div>
-              <div style={{ fontSize: 7, letterSpacing: 2, color: "#3D5166", fontWeight: 700, marginBottom: 10 }}>
-                MAP CAUSALE — Structure: MomentumModule · Cliquer un cluster pour le détail
-              </div>
-              {COUCHES.map(function(couche) {
-                return (
-                  <LayerRow
-                    key={couche.id}
-                    couche={couche}
-                    clusters={scoredListes}
-                    onSelect={handleSelect}
-                    selectedId={selected ? selected.id : null}
-                  />
-                );
-              })}
-            </div>
-          )}
-
-          {/* VUE LISTE — triée par conviction décroissante */}
-          {view === "list" && (
-            <div>
-              <div style={{ fontSize: 7, letterSpacing: 2, color: "#3D5166", fontWeight: 700, marginBottom: 10 }}>
-                TOUTES LES LISTES — Triées par conviction décroissante
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {scoredListes
-                  .slice()
-                  .sort(function(a, b) {
-                    return Math.abs(b.probability - 0.5) - Math.abs(a.probability - 0.5);
-                  })
-                  .map(function(c, i) {
-                    var color    = signalColor(c.direction, c.probability);
-                    var isNeutre = c.direction === "neutre";
-                    return (
-                      <div
-                        key={c.id}
-                        onClick={function() { handleSelect(c); }}
-                        style={{
-                          background:   "#0B1120",
-                          border:       "1px solid " + (isNeutre ? "#111B2D" : color + "44"),
-                          borderLeft:   "3px solid " + (isNeutre ? "#1C2940" : color),
-                          borderRadius: 10,
-                          padding:      "11px 14px",
-                          cursor:       "pointer",
-                          display:      "flex",
-                          alignItems:   "center",
-                          gap:          12,
-                          opacity:      isNeutre ? 0.55 : 1,
-                          animation:    "fadeSlide 0.4s ease both",
-                          animationDelay: i * 25 + "ms",
-                        }}
-                      >
-                        <ScoreBadge probability={c.probability} direction={c.direction} size="sm" />
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 8, letterSpacing: 1, color: c.coucheColor, fontWeight: 700, marginBottom: 2 }}>
-                            {c.coucheId + (c.isIA ? " · IA" : "")}
-                          </div>
-                          <div style={{ fontSize: 12, fontWeight: 700, color: "#C8D8E8", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                            {c.nom}
-                          </div>
-                          <div style={{ fontSize: 8, color: "#3D5166", marginTop: 2 }}>
-                            {(c.tickers || []).slice(0, 4).join(" · ")}
-                          </div>
-                        </div>
-                        <div style={{ textAlign: "right", flexShrink: 0 }}>
-                          <div style={{ fontSize: 9, fontWeight: 700, color: color }}>
-                            {(c.direction === "haussier" ? "▲ " : c.direction === "baissier" ? "▼ " : "◆ ") + c.direction.toUpperCase()}
-                          </div>
-                          <div style={{ fontSize: 8, color: "#3D5166", marginTop: 2 }}>
-                            {c.signalCount + " signal" + (c.signalCount > 1 ? "s" : "")}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })
-                }
-              </div>
+          {/* CLUSTER MAP */}
+          {couchesData ? (
+            <ClusterMap
+              couchesData={couchesData}
+              scoreMap={scoreMap}
+              onSelect={handleSelect}
+              selectedId={selectedId}
+            />
+          ) : (
+            <div style={{ fontSize: 10, color: "#3D5166", textAlign: "center", padding: "20px 0" }}>
+              ⏳ Chargement de la structure L1-L12…
             </div>
           )}
 
           {/* Légende */}
           <div style={{
             display: "flex", gap: 10, flexWrap: "wrap",
-            marginTop: 16, paddingTop: 12,
-            borderTop: "1px solid #0D1828",
+            marginTop: 16, paddingTop: 12, borderTop: "1px solid #0D1828",
           }}>
             {[
-              { color: "#00FF88", label: "Signal fort haussier" },
+              { color: "#00FF88", label: "Signal fort haussier (>70%)" },
               { color: "#00CC66", label: "Haussier probable" },
               { color: "#FF2244", label: "Baissier" },
               { color: "#3D5166", label: "Neutre" },
-              { color: "#00B4FF", label: "IA Chain" },
+              { color: "#00B4FF", label: "Tap cercle = détail" },
             ].map(function(l) {
               return (
                 <div key={l.label} style={{ display: "flex", alignItems: "center", gap: 5 }}>
@@ -869,8 +851,8 @@ export default function MorningEdgeModule() {
           </div>
 
           <div style={{ fontSize: 8, color: "#1C2940", marginTop: 10, lineHeight: 1.8 }}>
-            ⚠ Structure des listes et liens causaux : source unique MomentumModule.
-            Corrélations historiques 252 sessions. Cache serveur 4h.
+            ⚠ Pearson lag-1 · 252 sessions · Structure L1-L12 source Supabase.
+            Cache serveur 4h. Vérifier always priced in + guidance avant position.
           </div>
         </div>
       )}
