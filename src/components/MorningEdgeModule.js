@@ -47,8 +47,8 @@ function SectionRect(props) {
   var color = signalColor(dir, prob);
   var isNeutre = dir === "neutre";
 
-  // Largeur proportionnelle : base 70px + sqrt(nb)*8
-  var w = Math.round(70 + Math.sqrt(nb) * 10);
+  // Largeur proportionnelle : base 55px + sqrt(nb)*7, max 160px
+  var w = Math.min(160, Math.round(55 + Math.sqrt(nb) * 7));
 
   return (
     <div
@@ -126,10 +126,11 @@ function LayerBlock(props) {
     }}>
       {/* Header */}
       <div style={{
-        display: "flex", alignItems: "center", gap: 10,
+        display: "flex", alignItems: "center", gap: 8,
         padding: "8px 14px",
         borderBottom: "1px solid " + color + "22",
         background: color + "11",
+        flexWrap: "wrap",
       }}>
         <span style={{
           fontFamily: "monospace", fontSize: 9, fontWeight: 800,
@@ -139,15 +140,15 @@ function LayerBlock(props) {
         }}>
           {isPanel ? (layer.badge || layer.num) : layer.num}
         </span>
-        <span style={{ fontSize: 12, fontWeight: 700, color: "#E8EEF4", flex: 1 }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: "#E8EEF4", flex: 1, minWidth: 80 }}>
           {layer.name}
         </span>
-        <span style={{ fontSize: 9, color: "#3D5166", whiteSpace: "nowrap" }}>
-          {totalTk} tickers
+        <span style={{ fontSize: 10, color: "#8899aa", whiteSpace: "nowrap", flexShrink: 0 }}>
+          {totalTk} tk
         </span>
         <span style={{
-          fontSize: 11, fontWeight: 800, color: aggColor,
-          minWidth: 36, textAlign: "right",
+          fontSize: 12, fontWeight: 800, color: aggColor,
+          whiteSpace: "nowrap", flexShrink: 0, minWidth: 38, textAlign: "right",
         }}>
           {Math.round(agg.probability * 100)}%
         </span>
@@ -549,8 +550,8 @@ function SupplyChainMap(props) {
 
   // Largeur panneau latéral = 28% de la largeur totale
   // Tronc = 44% centré, marges gauche/droite = 28% chacune
-  var PANEL_W = "28%";
-  var TRUNK_W = "44%";
+  var PANEL_W = "18%";
+  var TRUNK_W = "60%";
 
   return (
     <div style={{ width: "100%" }}>
