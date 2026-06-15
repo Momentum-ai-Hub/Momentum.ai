@@ -55,16 +55,16 @@ function SectionRect(props) {
     <div
       onClick={function() { onSelect(section, cluster); }}
       style={{
-        width: w, minHeight: 68,
+        width: "100%", minHeight: 80,
         borderRadius: 10,
         background: isNeutre ? "#0D1321" : color + "18",
         border: "2px solid " + (isSelected ? color : color + (isNeutre ? "33" : "55")),
-        padding: "8px 10px",
+        padding: "10px 12px",
         cursor: "pointer",
         display: "flex", flexDirection: "column", justifyContent: "space-between",
         boxShadow: isSelected ? "0 0 12px " + color + "44" : "none",
         transition: "all 0.15s",
-        flexShrink: 0,
+        boxSizing: "border-box",
       }}
     >
       {/* Nom section — complet, pas de troncature */}
@@ -153,7 +153,7 @@ function LayerBlock(props) {
         </span>
       </div>
 
-      {/* Sections — rangées de rectangles */}
+      {/* Sections — max 3 par ligne */}
       <div style={{
         padding: "10px 12px",
         display: "flex", flexWrap: "wrap", gap: 8,
@@ -161,13 +161,14 @@ function LayerBlock(props) {
         {sections.map(function(sec, idx) {
           var cluster = scoreMap[sec.id] || null;
           return (
-            <SectionRect
-              key={sec.id || idx}
-              section={sec}
-              cluster={cluster}
-              onSelect={onSelect}
-              isSelected={selectedId === sec.id}
-            />
+            <div key={sec.id || idx} style={{ flex: "1 1 calc(33% - 8px)", minWidth: 0, maxWidth: "calc(33% - 8px)" }}>
+              <SectionRect
+                section={sec}
+                cluster={cluster}
+                onSelect={onSelect}
+                isSelected={selectedId === sec.id}
+              />
+            </div>
           );
         })}
       </div>
@@ -550,7 +551,7 @@ function SupplyChainMap(props) {
   // Largeur panneau latéral = 28% de la largeur totale
   // Tronc = 44% centré, marges gauche/droite = 28% chacune
   var PANEL_W = "18%";
-  var TRUNK_W = "60%";
+  var TRUNK_W = "80%";
 
   return (
     <div style={{ width: "100%" }}>
@@ -811,26 +812,23 @@ export default function MorningEdgeModule() {
             />
           )}
 
-          {/* Cluster Map — pleine largeur viewport */}
+          {/* Cluster Map — largeur large, scroll latéral libre */}
           {couchesData ? (
             <div style={{
-              position: "relative",
-              left: "50%",
-              right: "50%",
-              marginLeft: "-50vw",
-              marginRight: "-50vw",
-              width: "100vw",
               overflowX: "auto",
               WebkitOverflowScrolling: "touch",
+              margin: "0 -14px",
+              padding: "0 14px 14px",
               background: "#04080F",
-              padding: "0 12px 12px",
             }}>
-              <SupplyChainMap
-                couchesData={couchesData}
-                scoreMap={scoreMap}
-                onSelect={handleSelect}
-                selectedId={selectedSec ? selectedSec.id : null}
-              />
+              <div style={{ minWidth: 1200 }}>
+                <SupplyChainMap
+                  couchesData={couchesData}
+                  scoreMap={scoreMap}
+                  onSelect={handleSelect}
+                  selectedId={selectedSec ? selectedSec.id : null}
+                />
+              </div>
             </div>
           ) : (
             <div style={{ fontSize: 11, color: "#3D5166", textAlign: "center", padding: "20px 0" }}>
