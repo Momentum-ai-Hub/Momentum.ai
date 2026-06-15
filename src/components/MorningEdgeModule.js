@@ -47,8 +47,9 @@ function SectionRect(props) {
   var color = signalColor(dir, prob);
   var isNeutre = dir === "neutre";
 
-  // Largeur proportionnelle : base 55px + sqrt(nb)*7, max 160px
-  var w = Math.min(160, Math.round(55 + Math.sqrt(nb) * 7));
+  // Largeur : assez pour le titre complet, min 110px, max 230px
+  var titleLen = (section.title || section.id || "").length;
+  var w = Math.min(230, Math.max(110, Math.round(titleLen * 7.5 + 24)));
 
   return (
     <div
@@ -66,12 +67,10 @@ function SectionRect(props) {
         flexShrink: 0,
       }}
     >
-      {/* Nom section */}
+      {/* Nom section — complet, pas de troncature */}
       <div style={{
-        fontSize: 10, fontWeight: 700, color: "#D0DCE8",
+        fontSize: 11, fontWeight: 700, color: "#D0DCE8",
         lineHeight: 1.3, marginBottom: 6,
-        overflow: "hidden",
-        display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
       }}>
         {section.title || section.id}
       </div>
@@ -550,11 +549,11 @@ function SupplyChainMap(props) {
 
   // Largeur panneau latéral = 28% de la largeur totale
   // Tronc = 44% centré, marges gauche/droite = 28% chacune
-  var PANEL_W = "12%";
-  var TRUNK_W = "74%";
+  var PANEL_W = "18%";
+  var TRUNK_W = "60%";
 
   return (
-    <div style={{ width: "100%", minWidth: 900 }}>
+    <div style={{ width: "100%" }}>
       {/* MACRO — pleine largeur */}
       {macroPanel && (
         <div style={{ marginBottom: 6 }}>
@@ -711,8 +710,6 @@ export default function MorningEdgeModule() {
       fontFamily: "'JetBrains Mono','Fira Code','SF Mono',monospace",
       padding: "16px 14px", borderRadius: 16,
       border: "1px solid #0D1828",
-      overflowX: "auto",
-      WebkitOverflowScrolling: "touch",
     }}>
       <style>{
         "@keyframes spin{to{transform:rotate(360deg)}}" +
@@ -814,14 +811,27 @@ export default function MorningEdgeModule() {
             />
           )}
 
-          {/* Cluster Map */}
+          {/* Cluster Map — pleine largeur viewport */}
           {couchesData ? (
-            <SupplyChainMap
-              couchesData={couchesData}
-              scoreMap={scoreMap}
-              onSelect={handleSelect}
-              selectedId={selectedSec ? selectedSec.id : null}
-            />
+            <div style={{
+              position: "relative",
+              left: "50%",
+              right: "50%",
+              marginLeft: "-50vw",
+              marginRight: "-50vw",
+              width: "100vw",
+              overflowX: "auto",
+              WebkitOverflowScrolling: "touch",
+              background: "#04080F",
+              padding: "0 12px 12px",
+            }}>
+              <SupplyChainMap
+                couchesData={couchesData}
+                scoreMap={scoreMap}
+                onSelect={handleSelect}
+                selectedId={selectedSec ? selectedSec.id : null}
+              />
+            </div>
           ) : (
             <div style={{ fontSize: 11, color: "#3D5166", textAlign: "center", padding: "20px 0" }}>
               ⏳ Chargement structure L1-L12…
