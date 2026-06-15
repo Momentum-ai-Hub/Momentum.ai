@@ -4,6 +4,19 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { getCouchesData } from "../lib/api";
 
 // ─────────────────────────────────────────────────────────────────
+// LAYOUT CONSTANTS
+// PANEL_W  = 18% de chaque côté (left/right absolu)
+// TRUNK_ML = 20% marginLeft (18% panneau + 2% gap)
+// TRUNK_MR = 20% marginRight
+// TRUNK_W  = 60% => 20+60+20 = 100%
+// ─────────────────────────────────────────────────────────────────
+
+var PANEL_W  = "18%";
+var TRUNK_ML = "20%";
+var TRUNK_MR = "20%";
+var TRUNK_W  = "60%";
+
+// ─────────────────────────────────────────────────────────────────
 // HELPERS
 // ─────────────────────────────────────────────────────────────────
 
@@ -31,31 +44,29 @@ function aggregateScore(clusters) {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// SECTION RECTANGLE — petit rectangle dans un layer
-// largeur proportionnelle au sqrt(nbTickers)
+// SECTION RECTANGLE
+// width: 100% dans son container flex
+// Pas de troncature sur le nom
 // ─────────────────────────────────────────────────────────────────
 
 function SectionRect(props) {
-  var section   = props.section;
-  var cluster   = props.cluster;
-  var onSelect  = props.onSelect;
+  var section    = props.section;
+  var cluster    = props.cluster;
+  var onSelect   = props.onSelect;
   var isSelected = props.isSelected;
 
-  var nb    = section.tickers ? section.tickers.length : 0;
-  var prob  = cluster ? cluster.probability : 0.5;
-  var dir   = cluster ? cluster.direction   : "neutre";
-  var color = signalColor(dir, prob);
+  var nb       = section.tickers ? section.tickers.length : 0;
+  var prob     = cluster ? cluster.probability : 0.5;
+  var dir      = cluster ? cluster.direction   : "neutre";
+  var color    = signalColor(dir, prob);
   var isNeutre = dir === "neutre";
-
-  // Largeur : assez pour le titre complet, min 110px, max 230px
-  var titleLen = (section.title || section.id || "").length;
-  var w = Math.min(230, Math.max(110, Math.round(titleLen * 7.5 + 24)));
 
   return (
     <div
       onClick={function() { onSelect(section, cluster); }}
       style={{
-        width: "100%", minHeight: 80,
+        width: "100%",
+        minHeight: 80,
         borderRadius: 10,
         background: isNeutre ? "#0D1321" : color + "18",
         border: "2px solid " + (isSelected ? color : color + (isNeutre ? "33" : "55")),
@@ -71,6 +82,8 @@ function SectionRect(props) {
       <div style={{
         fontSize: 11, fontWeight: 700, color: "#D0DCE8",
         lineHeight: 1.3, marginBottom: 6,
+        wordBreak: "break-word",
+        whiteSpace: "normal",
       }}>
         {section.title || section.id}
       </div>
@@ -95,7 +108,8 @@ function SectionRect(props) {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// LAYER BLOCK — grand rectangle avec sections à l'intérieur
+// LAYER BLOCK
+// Max 3 sections par ligne : flex: 1 1 calc(33% - 8px)
 // ─────────────────────────────────────────────────────────────────
 
 function LayerBlock(props) {
@@ -109,10 +123,10 @@ function LayerBlock(props) {
   var layerClusters = sections.map(function(s) {
     return scoreMap[s.id] || null;
   }).filter(Boolean);
-  var agg   = aggregateScore(layerClusters);
-  var color = isPanel ? (props.panelColor || "#94a3b8") : (layer.cc || "#58a6ff");
-  var bg    = isPanel ? (props.panelBg || "#08090d") : (layer.bg || "#060e1a");
-  var totalTk = sections.reduce(function(a, s) { return a + (s.tickers ? s.tickers.length : 0); }, 0);
+  var agg      = aggregateScore(layerClusters);
+  var color    = isPanel ? (props.panelColor || "#94a3b8") : (layer.cc || "#58a6ff");
+  var bg       = isPanel ? (props.panelBg    || "#08090d") : (layer.bg || "#060e1a");
+  var totalTk  = sections.reduce(function(a, s) { return a + (s.tickers ? s.tickers.length : 0); }, 0);
   var aggColor = signalColor(agg.direction, agg.probability);
 
   return (
@@ -161,7 +175,11 @@ function LayerBlock(props) {
         {sections.map(function(sec, idx) {
           var cluster = scoreMap[sec.id] || null;
           return (
-            <div key={sec.id || idx} style={{ flex: "1 1 calc(33% - 8px)", minWidth: 0, maxWidth: "calc(33% - 8px)" }}>
+            <div key={sec.id || idx} style={{
+              flex: "1 1 calc(33% - 8px)",
+              minWidth: 0,
+              maxWidth: "calc(33% - 8px)",
+            }}>
               <SectionRect
                 section={sec}
                 cluster={cluster}
@@ -187,20 +205,19 @@ function Connector(props) {
       color: "#1C2940", padding: "3px 0",
       letterSpacing: "0.06em", fontStyle: "italic",
     }}>
-      ↓  {props.text}
+      {"↓  " + props.text}
     </div>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────
-// DETAIL PANEL — section sélectionnée, tous les tickers
+// DETAIL PANEL
 // ─────────────────────────────────────────────────────────────────
 
 function DetailPanel(props) {
-  var section = props.section;
-  var cluster = props.cluster;
-  var onClose = props.onClose;
-  var scoreMap = props.scoreMap;
+  var section  = props.section;
+  var cluster  = props.cluster;
+  var onClose  = props.onClose;
 
   if (!section) return null;
 
@@ -208,11 +225,7 @@ function DetailPanel(props) {
   var dir   = cluster ? cluster.direction   : "neutre";
   var color = signalColor(dir, prob);
 
-  // Tous les tickers, triés : haussiers > neutres > baissiers
-  // Pour l'instant on n'a pas la perf individuelle par ticker dans scoreMap
-  // On affiche tous les tickers avec la couleur du cluster global
-  var tickers = section.tickers || [];
-
+  var tickers       = section.tickers || [];
   var directSignals = cluster ? (cluster.signals || []).filter(function(s) { return s.source !== "causal"; }) : [];
   var causalSignals = cluster ? (cluster.signals || []).filter(function(s) { return s.source === "causal"; }) : [];
 
@@ -226,7 +239,7 @@ function DetailPanel(props) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
         <div>
           <div style={{ fontSize: 8, letterSpacing: 2, color: color, marginBottom: 4, fontWeight: 800, fontFamily: "monospace" }}>
-            {section.id} · {dir.toUpperCase()} · {Math.round(prob * 100)}%
+            {section.id + " · " + dir.toUpperCase() + " · " + Math.round(prob * 100) + "%"}
           </div>
           <div style={{ fontSize: 16, fontWeight: 800, color: "#E8EEF4" }}>
             {section.title || section.id}
@@ -245,7 +258,7 @@ function DetailPanel(props) {
       {/* Tous les tickers */}
       <div style={{ marginBottom: 14 }}>
         <div style={{ fontSize: 9, letterSpacing: 2, color: "#3D5166", fontWeight: 700, marginBottom: 8, fontFamily: "monospace" }}>
-          TICKERS ({tickers.length})
+          {"TICKERS (" + tickers.length + ")"}
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
           {tickers.map(function(t) {
@@ -281,8 +294,8 @@ function DetailPanel(props) {
                 borderRadius: 8, padding: "7px 12px", marginBottom: 4,
                 fontSize: 11, color: "#78909C",
               }}>
-                <span style={{ color: "#00B4FF", fontWeight: 700 }}>↗</span>
-                {" "}Reçu de{" "}
+                <span style={{ color: "#00B4FF", fontWeight: 700 }}>{"↗"}</span>
+                {" Reçu de "}
                 <span style={{ color: "#B0BEC5", fontWeight: 700 }}>{s.leader}</span>
               </div>
             );
@@ -298,8 +311,8 @@ function DetailPanel(props) {
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
             {directSignals.map(function(s, i) {
-              var sc  = s.changePct > 0 ? "#00CC66" : "#FF2244";
-              var qc  = s.quality === "fort" ? "#00FF88" : s.quality === "modéré" ? "#FFD700" : "#FF6D00";
+              var sc = s.changePct > 0 ? "#00CC66" : "#FF2244";
+              var qc = s.quality === "fort" ? "#00FF88" : s.quality === "modéré" ? "#FFD700" : "#FF6D00";
               return (
                 <div key={i} style={{
                   display: "grid", gridTemplateColumns: "1fr 60px 60px 55px",
@@ -315,7 +328,7 @@ function DetailPanel(props) {
                   </span>
                   <div style={{ textAlign: "center" }}>
                     <div style={{ fontSize: 9, color: qc, fontWeight: 700 }}>{s.quality}</div>
-                    <div style={{ fontSize: 8, color: "#3D5166" }}>r={Number(s.corr).toFixed(2)}</div>
+                    <div style={{ fontSize: 8, color: "#3D5166" }}>{"r=" + Number(s.corr).toFixed(2)}</div>
                   </div>
                   <div style={{ textAlign: "right" }}>
                     <div style={{ fontSize: 9, color: "#78909C" }}>
@@ -340,8 +353,29 @@ function DetailPanel(props) {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// LEADERS PANEL — top 10 haussiers + top 10 baissiers
+// LEADERS PANEL
 // ─────────────────────────────────────────────────────────────────
+
+function LeaderRow(props) {
+  var l     = props.leader;
+  var color = l.changePct > 0.003 ? "#00CC66" : l.changePct < -0.003 ? "#FF2244" : "#546E7A";
+  return (
+    <div style={{
+      display: "flex", justifyContent: "space-between", alignItems: "center",
+      padding: "6px 10px", borderBottom: "1px solid #0D1828",
+    }}>
+      <div>
+        <span style={{ fontSize: 12, fontWeight: 700, color: "#D0DCE8" }}>{l.name}</span>
+        <span style={{ fontSize: 9, color: "#3D5166", marginLeft: 6, fontFamily: "monospace" }}>
+          {l.region + " · " + l.sector}
+        </span>
+      </div>
+      <span style={{ fontSize: 13, fontWeight: 800, color: color, fontFamily: "monospace" }}>
+        {pctFmt(l.changePct)}
+      </span>
+    </div>
+  );
+}
 
 function LeadersPanel(props) {
   var leaders = props.leaders || [];
@@ -353,49 +387,26 @@ function LeadersPanel(props) {
   var top10    = available.slice(0, 10);
   var bottom10 = available.slice(-10).reverse();
 
-  function LeaderRow(props) {
-    var l     = props.leader;
-    var color = l.changePct > 0.003 ? "#00CC66" : l.changePct < -0.003 ? "#FF2244" : "#546E7A";
-    return (
-      <div style={{
-        display: "flex", justifyContent: "space-between", alignItems: "center",
-        padding: "6px 10px", borderBottom: "1px solid #0D1828",
-      }}>
-        <div>
-          <span style={{ fontSize: 12, fontWeight: 700, color: "#D0DCE8" }}>{l.name}</span>
-          <span style={{ fontSize: 9, color: "#3D5166", marginLeft: 6, fontFamily: "monospace" }}>
-            {l.region} · {l.sector}
-          </span>
-        </div>
-        <span style={{ fontSize: 13, fontWeight: 800, color: color, fontFamily: "monospace" }}>
-          {pctFmt(l.changePct)}
-        </span>
-      </div>
-    );
-  }
-
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
-      {/* Top 10 haussiers */}
       <div style={{
         background: "#060C18", border: "1px solid #00CC6633",
         borderRadius: 12, overflow: "hidden",
       }}>
         <div style={{ padding: "8px 12px", background: "#00CC6611", borderBottom: "1px solid #00CC6622" }}>
           <span style={{ fontSize: 9, fontWeight: 800, color: "#00CC66", letterSpacing: 2, fontFamily: "monospace" }}>
-            ▲ TOP 10 HAUSSIERS
+            {"▲ TOP 10 HAUSSIERS"}
           </span>
         </div>
         {top10.map(function(l) { return <LeaderRow key={l.symbol} leader={l} />; })}
       </div>
-      {/* Top 10 baissiers */}
       <div style={{
         background: "#060C18", border: "1px solid #FF224433",
         borderRadius: 12, overflow: "hidden",
       }}>
         <div style={{ padding: "8px 12px", background: "#FF224411", borderBottom: "1px solid #FF224422" }}>
           <span style={{ fontSize: 9, fontWeight: 800, color: "#FF2244", letterSpacing: 2, fontFamily: "monospace" }}>
-            ▼ TOP 10 BAISSIERS
+            {"▼ TOP 10 BAISSIERS"}
           </span>
         </div>
         {bottom10.map(function(l) { return <LeaderRow key={l.symbol} leader={l} />; })}
@@ -419,18 +430,20 @@ function SignalSummaryBar(props) {
   }).length;
   var total = clusters.length || 1;
 
+  var items = [
+    { val: haussiers, label: "HAUSSIER", color: "#00CC66" },
+    { val: baissiers, label: "BAISSIER", color: "#FF2244" },
+    { val: neutres,   label: "NEUTRE",   color: "#546E7A" },
+    { val: forts,     label: "FORTS",    color: "#FFD700" },
+  ];
+
   return (
     <div style={{
       display: "flex", gap: 12, flexWrap: "wrap",
       padding: "12px 16px", background: "#060C18",
       border: "1px solid #111B2D", borderRadius: 10, marginBottom: 14,
     }}>
-      {[
-        { val: haussiers, label: "HAUSSIER", color: "#00CC66" },
-        { val: baissiers, label: "BAISSIER", color: "#FF2244" },
-        { val: neutres,   label: "NEUTRE",   color: "#546E7A" },
-        { val: forts,     label: "🔥 FORTS", color: "#FFD700" },
-      ].map(function(item) {
+      {items.map(function(item) {
         return (
           <div key={item.label} style={{ flex: 1, minWidth: 55 }}>
             <div style={{ fontSize: 20, fontWeight: 800, color: item.color }}>{item.val}</div>
@@ -450,7 +463,12 @@ function SignalSummaryBar(props) {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// SUPPLY CHAIN MAP — layout 3 colonnes, image de référence
+// SUPPLY CHAIN MAP
+// Layout corrigé :
+//   - Wrapper position:relative, minWidth 1200px (géré par le parent)
+//   - Panneaux en position:absolute, left/right = 0, width = PANEL_W
+//   - Tronc central : marginLeft = TRUNK_ML, marginRight = TRUNK_MR, width = TRUNK_W
+//   - Pas de chevauchement : 20% + 60% + 20% = 100%
 // ─────────────────────────────────────────────────────────────────
 
 var PANEL_COLORS = {
@@ -500,9 +518,9 @@ function SupplyChainMap(props) {
     );
   }
 
-  function renderPanelBlock(panel) {
+  function renderPanelBlock(panel, panelId) {
     if (!panel) return null;
-    var pc = PANEL_COLORS[panel.id] || { cc: "#94a3b8", bg: "#08090d" };
+    var pc = PANEL_COLORS[panelId] || { cc: "#94a3b8", bg: "#08090d" };
     return (
       <LayerBlock
         layer={{ num: panel.badge, name: panel.name, badge: panel.badge, cc: pc.cc, bg: pc.bg }}
@@ -516,16 +534,6 @@ function SupplyChainMap(props) {
       />
     );
   }
-
-  // Refs pour mesurer la position Y de L5, L9, L11 dans le tronc
-  // On utilise une approche CSS pure : chaque layer a un data-id,
-  // et les panneaux latéraux sont positionnés en absolute dans un wrapper relative.
-  // Le wrapper a un padding-left et padding-right pour laisser la place aux panneaux
-  // MAIS le tronc lui-même ignore ces paddings grâce à margin négatif compensé.
-  //
-  // Approche choisie : wrapper relative, tronc en position normale au centre,
-  // panneaux en position absolute à gauche/droite, alignés sur leur layer via
-  // un élément ancre (div vide avec ref) inséré au bon endroit dans le tronc.
 
   const [l5Top,  setL5Top]  = useState(0);
   const [l9Top,  setL9Top]  = useState(0);
@@ -548,26 +556,23 @@ function SupplyChainMap(props) {
     return function() { window.removeEventListener("resize", measure); };
   }, [layers, couchesData]);
 
-  // Largeur panneau latéral = 28% de la largeur totale
-  // Tronc = 44% centré, marges gauche/droite = 28% chacune
-  var PANEL_W = "18%";
-  var TRUNK_W = "80%";
-
   return (
     <div style={{ width: "100%" }}>
       {/* MACRO — pleine largeur */}
       {macroPanel && (
         <div style={{ marginBottom: 6 }}>
-          <div style={{ fontSize: 8, letterSpacing: 3, color: "#94a3b8", textAlign: "center",
-            fontFamily: "monospace", marginBottom: 4, fontWeight: 700 }}>
+          <div style={{
+            fontSize: 8, letterSpacing: 3, color: "#94a3b8", textAlign: "center",
+            fontFamily: "monospace", marginBottom: 4, fontWeight: 700,
+          }}>
             MACRO · WATCHLISTS — non relié au tronc
           </div>
-          {renderPanelBlock(macroPanel)}
+          {renderPanelBlock(macroPanel, "macro")}
           <Connector text="parallel — non causal" />
         </div>
       )}
 
-      {/* Wrapper relatif : contient le tronc centré + panneaux en absolu */}
+      {/* Wrapper relatif — panneaux absolu + tronc décalé */}
       <div ref={wrapRef} style={{ position: "relative", width: "100%" }}>
 
         {/* POWER — absolu à gauche, aligné sur L5 */}
@@ -576,11 +581,13 @@ function SupplyChainMap(props) {
             position: "absolute", left: 0, top: l5Top,
             width: PANEL_W,
           }}>
-            <div style={{ fontSize: 7, letterSpacing: 2, color: PANEL_COLORS.power.cc,
-              fontFamily: "monospace", marginBottom: 3, fontWeight: 700, opacity: 0.8 }}>
-              ◄ POWER INFRASTRUCTURE
+            <div style={{
+              fontSize: 7, letterSpacing: 2, color: PANEL_COLORS.power.cc,
+              fontFamily: "monospace", marginBottom: 3, fontWeight: 700, opacity: 0.8,
+            }}>
+              {"◄ POWER INFRASTRUCTURE"}
             </div>
-            {renderPanelBlock(powerPanel)}
+            {renderPanelBlock(powerPanel, "power")}
           </div>
         )}
 
@@ -590,11 +597,13 @@ function SupplyChainMap(props) {
             position: "absolute", right: 0, top: l5Top,
             width: PANEL_W,
           }}>
-            <div style={{ fontSize: 7, letterSpacing: 2, color: PANEL_COLORS.thermal.cc,
-              fontFamily: "monospace", marginBottom: 3, fontWeight: 700, opacity: 0.8 }}>
-              THERMAL ►
+            <div style={{
+              fontSize: 7, letterSpacing: 2, color: PANEL_COLORS.thermal.cc,
+              fontFamily: "monospace", marginBottom: 3, fontWeight: 700, opacity: 0.8,
+            }}>
+              {"THERMAL ►"}
             </div>
-            {renderPanelBlock(thermalPanel)}
+            {renderPanelBlock(thermalPanel, "thermal")}
           </div>
         )}
 
@@ -604,11 +613,13 @@ function SupplyChainMap(props) {
             position: "absolute", right: 0, top: l9Top,
             width: PANEL_W,
           }}>
-            <div style={{ fontSize: 7, letterSpacing: 2, color: PANEL_COLORS.security.cc,
-              fontFamily: "monospace", marginBottom: 3, fontWeight: 700, opacity: 0.8 }}>
-              SECURITY ►
+            <div style={{
+              fontSize: 7, letterSpacing: 2, color: PANEL_COLORS.security.cc,
+              fontFamily: "monospace", marginBottom: 3, fontWeight: 700, opacity: 0.8,
+            }}>
+              {"SECURITY ►"}
             </div>
-            {renderPanelBlock(securityPanel)}
+            {renderPanelBlock(securityPanel, "security")}
           </div>
         )}
 
@@ -618,19 +629,26 @@ function SupplyChainMap(props) {
             position: "absolute", right: 0, top: l11Top,
             width: PANEL_W,
           }}>
-            <div style={{ fontSize: 7, letterSpacing: 2, color: PANEL_COLORS.edge.cc,
-              fontFamily: "monospace", marginBottom: 3, fontWeight: 700, opacity: 0.8 }}>
-              EDGE ►
+            <div style={{
+              fontSize: 7, letterSpacing: 2, color: PANEL_COLORS.edge.cc,
+              fontFamily: "monospace", marginBottom: 3, fontWeight: 700, opacity: 0.8,
+            }}>
+              {"EDGE ►"}
             </div>
-            {renderPanelBlock(edgePanel)}
+            {renderPanelBlock(edgePanel, "edge")}
           </div>
         )}
 
-        {/* TRONC CENTRAL — toujours centré, largeur fixe, pas affecté par les panneaux */}
+        {/* TRONC CENTRAL
+            marginLeft = TRUNK_ML (20%) laisse la place au panneau gauche (18%) + gap (2%)
+            marginRight = TRUNK_MR (20%) laisse la place aux panneaux droits (18%) + gap (2%)
+            width = TRUNK_W (60%)
+            => 20 + 60 + 20 = 100%, pas de chevauchement
+        */}
         <div style={{
           width: TRUNK_W,
-          marginLeft: "auto",
-          marginRight: "auto",
+          marginLeft: TRUNK_ML,
+          marginRight: TRUNK_MR,
           display: "flex",
           flexDirection: "column",
           gap: 4,
@@ -641,7 +659,6 @@ function SupplyChainMap(props) {
             var isL11 = layer.id === "l11";
             return (
               <div key={layer.id}>
-                {/* Ancre de mesure */}
                 {isL5  && <div ref={l5Ref}  style={{ height: 0 }} />}
                 {isL9  && <div ref={l9Ref}  style={{ height: 0 }} />}
                 {isL11 && <div ref={l11Ref} style={{ height: 0 }} />}
@@ -678,7 +695,9 @@ export default function MorningEdgeModule() {
 
   const fetchApiData = useCallback(function(force) {
     setLoading(true); setError(null);
-    fetch("/api/morning-edge", { cache: force ? "no-store" : "default" })
+    var url = "/api/morning-edge";
+    var opts = force ? { cache: "no-store" } : {};
+    fetch(url, opts)
       .then(function(res) { return res.json(); })
       .then(function(json) {
         if (!json.success) throw new Error(json.error || "Erreur API");
@@ -705,6 +724,12 @@ export default function MorningEdgeModule() {
     }
   }
 
+  var metaLeadersAvail  = apiData && apiData.meta ? apiData.meta.leadersAvailable : 0;
+  var metaLeadersTotal  = apiData && apiData.meta ? apiData.meta.totalLeaders     : 0;
+  var lastFetchTime     = lastFetch
+    ? lastFetch.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
+    : "";
+
   return (
     <div style={{
       background: "#04080F", color: "#B8C5D6",
@@ -712,10 +737,10 @@ export default function MorningEdgeModule() {
       padding: "16px 14px", borderRadius: 16,
       border: "1px solid #0D1828",
     }}>
-      <style>{
-        "@keyframes spin{to{transform:rotate(360deg)}}" +
-        "@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}"
-      }</style>
+      <style>
+        {"@keyframes spin{to{transform:rotate(360deg)}}" +
+         "@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}"}
+      </style>
 
       {/* HEADER */}
       <div style={{
@@ -730,7 +755,7 @@ export default function MorningEdgeModule() {
             AI Supply Chain Map
           </h2>
           <p style={{ fontSize: 10, color: "#3D5166", margin: 0 }}>
-            L1→L12 · Bayesian Scoring · Structure Supabase
+            {"L1\u2192L12 · Bayesian Scoring · Structure Supabase"}
           </p>
         </div>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 5 }}>
@@ -740,22 +765,24 @@ export default function MorningEdgeModule() {
               background: "#0B1120", border: "1px solid #111B2D",
               borderRadius: 6, padding: "3px 8px",
             }}>
-              <span style={{ color: "#00CC66", animation: "pulse 2s infinite" }}>●</span>
-              {" "}{apiData.meta && apiData.meta.leadersAvailable}/{apiData.meta && apiData.meta.totalLeaders} leaders actifs
+              <span style={{ color: "#00CC66", animation: "pulse 2s infinite" }}>{"●"}</span>
+              {" " + metaLeadersAvail + "/" + metaLeadersTotal + " leaders actifs"}
             </div>
           )}
-          <button onClick={function() { fetchApiData(true); }} disabled={loading}
+          <button
+            onClick={function() { fetchApiData(true); }}
+            disabled={loading}
             style={{
               background: "#0B1120", color: "#00B4FF",
               border: "1px solid #00B4FF33", borderRadius: 6,
               padding: "5px 12px", cursor: "pointer",
               fontSize: 10, fontFamily: "inherit", fontWeight: 700, letterSpacing: 1,
             }}>
-            {loading ? "⟳" : "↺"} MAJ
+            {loading ? "⟳" : "↺"}{" MAJ"}
           </button>
           {lastFetch && (
             <div style={{ fontSize: 8, color: "#2A3A4A" }}>
-              {lastFetch.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+              {lastFetchTime}
             </div>
           )}
         </div>
@@ -794,15 +821,12 @@ export default function MorningEdgeModule() {
       {/* CONTENT */}
       {!loading && (
         <div>
-          {/* Leaders top/bottom 10 */}
           {apiData && apiData.leaders && (
             <LeadersPanel leaders={apiData.leaders} />
           )}
 
-          {/* Summary */}
           {allClusters.length > 0 && <SignalSummaryBar clusters={allClusters} />}
 
-          {/* Détail section sélectionnée */}
           {selectedSec && (
             <DetailPanel
               section={selectedSec}
@@ -812,7 +836,7 @@ export default function MorningEdgeModule() {
             />
           )}
 
-          {/* Cluster Map — largeur large, scroll latéral libre */}
+          {/* Cluster Map — scroll latéral libre desktop & mobile */}
           {couchesData ? (
             <div style={{
               overflowX: "auto",
@@ -832,7 +856,7 @@ export default function MorningEdgeModule() {
             </div>
           ) : (
             <div style={{ fontSize: 11, color: "#3D5166", textAlign: "center", padding: "20px 0" }}>
-              ⏳ Chargement structure L1-L12…
+              {"⏳ Chargement structure L1-L12…"}
             </div>
           )}
 
