@@ -550,11 +550,11 @@ function SupplyChainMap(props) {
 
   // Largeur panneau latéral = 28% de la largeur totale
   // Tronc = 44% centré, marges gauche/droite = 28% chacune
-  var PANEL_W = "18%";
-  var TRUNK_W = "60%";
+  var PANEL_W = "12%";
+  var TRUNK_W = "74%";
 
   return (
-    <div style={{ width: "100%" }}>
+    <div style={{ width: "100%", minWidth: 900 }}>
       {/* MACRO — pleine largeur */}
       {macroPanel && (
         <div style={{ marginBottom: 6 }}>
@@ -711,7 +711,8 @@ export default function MorningEdgeModule() {
       fontFamily: "'JetBrains Mono','Fira Code','SF Mono',monospace",
       padding: "16px 14px", borderRadius: 16,
       border: "1px solid #0D1828",
-      overflowX: "visible",
+      overflowX: "auto",
+      WebkitOverflowScrolling: "touch",
     }}>
       <style>{
         "@keyframes spin{to{transform:rotate(360deg)}}" +
