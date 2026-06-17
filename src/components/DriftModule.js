@@ -1,6 +1,15 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import {
+  getStockProfile,
+  getPerf30d,
+  getEarningsHistory,
+  getShortInterest,
+  getPutCallRatio,
+  analyzeEarnings,
+  classifyBatch,
+} from '../lib/api';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -11,14 +20,25 @@ const FINNHUB_KEY = process.env.NEXT_PUBLIC_FINNHUB_KEY;
 
 export default function DriftModule() {
   const [watchlist, setWatchlist] = useState([]);
-  const [calendrier, setCalendrier] = useState([]);
-  const [enriching, setEnriching] = useState(false);
-  const [enrichStatus, setEnrichStatus] = useState(''); // message affiché sous le calendrier
-  const [loading, setLoading] = useState(false);
+  const [calendrierPortfolio, setCalendrierPortfolio] = useState([]);
+  const [calendrierNouveautes, setCalendrierNouveautes] = useState([]);
+  const [nouveauteStatus, setNouveauteStatus] = useState('');
   const [scanning, setScanning] = useState(false);
   const [view, setView] = useState('watchlist');
 
-  useEffect(() => { loadWatchlist(); }, []);
+  const [portfolioMap, setPortfolioMap] = useState({});
+  const [portfolioSecteurs, setPortfolioSecteurs] = useState([]);
+
+  const [loadingTicker, setLoadingTicker] = useState(null);
+
+  const [resumeTicker, setResumeTicker] = useState(null);
+  const [resumeText, setResumeText] = useState('');
+  const [resumeLoading, setResumeLoading] = useState(false);
+
+  useEffect(function () {
+    loadWatchlist();
+    loadPortfolio();
+  }, []);
 
   async function loadWatchlist() {
     const { data } = await supabase
@@ -28,10 +48,34 @@ export default function DriftModule() {
     if (data) setWatchlist(data);
   }
 
-  // ─── STEP 1 : Finnhub scan rapide ────────────────────────────────────────────
+  // ─── Charger le portfolio IBKR depuis Supabase (table portfolio_tickers) ────
+  async function loadPortfolio() {
+    try {
+      const res = await fetch('/api/portfolio');
+      if (!res.ok) return;
+      const data = await res.json();
+      const raw = data.raw || [];
+
+      const map = {};
+      const secteursSet = {};
+      for (let i = 0; i < raw.length; i++) {
+        const row = raw[i];
+        map[row.ticker] = { name: row.name, secteur: row.secteur, bourse: row.bourse };
+        if (row.secteur) secteursSet[row.secteur] = true;
+      }
+      setPortfolioMap(map);
+      setPortfolioSecteurs(Object.keys(secteursSet));
+    } catch (e) {
+      // pas bloquant — le scan fonctionnera quand même, juste sans priorisation portfolio
+    }
+  }
+
+  // ─── STEP 1 : Finnhub scan + split portfolio / nouveautés ───────────────────
   async function scanCalendrier() {
     setScanning(true);
-    setEnrichStatus('');
+    setNouveauteStatus('');
+    setCalendrierPortfolio([]);
+    setCalendrierNouveautes([]);
     try {
       const today = new Date();
       const future = new Date();
@@ -39,23 +83,39 @@ export default function DriftModule() {
       const from = today.toISOString().split('T')[0];
       const to = future.toISOString().split('T')[0];
 
-      const res = await fetch(
-        `https://finnhub.io/api/v1/calendar/earnings?from=${from}&to=${to}&token=${FINNHUB_KEY}`
-      );
+      const url = 'https://finnhub.io/api/v1/calendar/earnings?from=' + from + '&to=' + to + '&token=' + FINNHUB_KEY;
+      const res = await fetch(url);
       const data = await res.json();
+      const list = (data && data.earningsCalendar) ? data.earningsCalendar : [];
+      const propres = list.filter(function (e) { return e.symbol && e.date; });
 
-      const list = data?.earningsCalendar ?? [];
-      const filtered = list
-        .filter(e => e.symbol && e.date)
-        .slice(0, 50);
-
-      setCalendrier(filtered);
+      // Section 1 : titres déjà dans mon portfolio IBKR — affichage immédiat, zéro coût Claude
+      const matched = [];
+      for (let i = 0; i < propres.length; i++) {
+        const item = propres[i];
+        const infos = portfolioMap[item.symbol];
+        if (infos) {
+          matched.push(Object.assign({}, item, {
+            name: infos.name,
+            secteur: infos.secteur,
+            bourse: infos.bourse,
+          }));
+        }
+      }
+      matched.sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+      setCalendrierPortfolio(matched);
       setView('calendrier');
       setScanning(false);
 
-      // ─── STEP 2 : Enrichissement Claude web search en arrière-plan ───────────
-      if (filtered.length > 0) {
-        enrichirCalendrier(filtered, from, to);
+      // Section 2 : nouveautés — candidats hors portfolio, avec données dispo (filtre anti-bruit)
+      const candidats = propres.filter(function (e) {
+        return !portfolioMap[e.symbol] && (e.epsEstimate != null || e.revenueEstimate != null);
+      }).sort(function (a, b) { return a.date < b.date ? -1 : 1; }).slice(0, 30);
+
+      if (candidats.length > 0) {
+        classifierNouveautes(candidats);
+      } else {
+        setNouveauteStatus('Aucune nouveauté avec données disponibles sur 30J.');
       }
     } catch (e) {
       alert('Erreur scan calendrier');
@@ -63,79 +123,79 @@ export default function DriftModule() {
     }
   }
 
-  // ─── STEP 2 : Claude web search pour enrichir timing + EPS manquants ────────
-  async function enrichirCalendrier(baseList, from, to) {
-    setEnriching(true);
-    setEnrichStatus('⚡ Enrichissement en cours...');
+  // ─── STEP 2 : Classification Claude (nom + secteur) sur la liste réduite ────
+  async function classifierNouveautes(candidats) {
+    setNouveauteStatus('🔍 Identification des nouveautés dans tes secteurs...');
     try {
-      // On envoie les tickers sans timing ou sans EPS à Claude pour enrichissement
-      const aEnrichir = baseList
-        .filter(e => !e.hour || e.epsEstimate === null || e.epsEstimate === undefined)
-        .slice(0, 20) // max 20 pour ne pas exploser les tokens
-        .map(e => ({ symbol: e.symbol, date: e.date, hour: e.hour || null, epsEstimate: e.epsEstimate ?? null }));
+      const items = candidats.map(function (c) { return { ticker: c.symbol }; });
+      const classified = await classifyBatch(items);
 
-      if (aEnrichir.length === 0) {
-        setEnrichStatus('');
-        setEnriching(false);
-        return;
+      const retenus = [];
+      for (let i = 0; i < candidats.length; i++) {
+        const item = candidats[i];
+        const match = classified.find(function (c) { return c.ticker === item.symbol; });
+        if (!match || !match.name || match.name === match.ticker) continue; // Claude ne connaît pas ce titre
+        if (portfolioSecteurs.length > 0 && portfolioSecteurs.indexOf(match.secteur) === -1) continue; // hors secteurs watchlist
+        retenus.push(Object.assign({}, item, {
+          name: match.name,
+          secteur: match.secteur,
+          bourse: match.bourse,
+        }));
       }
 
-      const response = await fetch('/api/claude', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          system: `Tu es un assistant qui enrichit un calendrier earnings.
-Retourne UNIQUEMENT un tableau JSON valide, sans backticks, sans texte autour.
-Chaque objet a exactement ces champs :
-{ "symbol": "TICKER", "hour": "BMO ou AMC ou null", "epsEstimate": number ou null, "revenueEstimate": number ou null }
-Si tu ne trouves pas l'info, mets null. Ne fais pas de suppositions sur les chiffres.`,
-          messages: [{
-            role: 'user',
-            content: `Enrichis ces publications earnings entre le ${from} et le ${to}.\nDonne le timing (BMO = avant ouverture / AMC = après clôture) et l'EPS consensus si disponible.\nListe : ${JSON.stringify(aEnrichir)}`
-          }],
-          useWebSearch: true
-        }),
-      });
-
-      const data = await response.json();
-      const text = data.content?.[0]?.text ?? '[]';
-      const clean = text.replace(/```json|```/g, '').trim();
-      const enriched = JSON.parse(clean);
-
-      // Merger les données enrichies dans la liste Finnhub
-      setCalendrier(prev => prev.map(item => {
-        const match = enriched.find(e => e.symbol === item.symbol);
-        if (!match) return item;
-        return {
-          ...item,
-          hour: item.hour || match.hour || null,
-          epsEstimate: item.epsEstimate ?? match.epsEstimate ?? null,
-          revenueEstimate: match.revenueEstimate ?? null,
-        };
-      }));
-
-      const enrichCount = enriched.filter(e => e.hour || e.epsEstimate).length;
-      setEnrichStatus(`✓ ${enrichCount} titres enrichis (timing + EPS)`);
+      setCalendrierNouveautes(retenus.slice(0, 15));
+      setNouveauteStatus(retenus.length > 0
+        ? '✓ ' + retenus.length + ' nouveauté(s) dans tes secteurs'
+        : 'Aucune nouveauté pertinente trouvée dans tes secteurs.');
     } catch (e) {
-      setEnrichStatus('⚠ Enrichissement indisponible');
+      setNouveauteStatus('⚠ Classification indisponible');
     }
-    setEnriching(false);
   }
 
-  // ─── Analyse drift via Claude ─────────────────────────────────────────────────
+  // ─── Résumé complet au clic sur un ticker (réutilise analyzeEarnings) ───────
+  async function ouvrirResume(item) {
+    if (resumeTicker === item.symbol) {
+      setResumeTicker(null);
+      return;
+    }
+    setResumeTicker(item.symbol);
+    setResumeText('');
+    setResumeLoading(true);
+    try {
+      const results = await Promise.all([
+        getStockProfile(item.symbol).catch(function () { return null; }),
+        getPerf30d(item.symbol).catch(function () { return null; }),
+        getEarningsHistory(item.symbol).catch(function () { return []; }),
+        getShortInterest(item.symbol).catch(function () { return null; }),
+        getPutCallRatio(item.symbol).catch(function () { return null; }),
+      ]);
+      const profile = results[0];
+      const perf30d = results[1];
+      const history = results[2];
+      const shortInterest = results[3];
+      const putCall = results[4];
+
+      const text = await analyzeEarnings(item.symbol, item, history, perf30d, putCall, shortInterest, profile, true);
+      setResumeText(text);
+    } catch (e) {
+      setResumeText('Erreur génération du résumé.');
+    }
+    setResumeLoading(false);
+  }
+
+  // ─── Analyse drift légère pour la fiche watchlist ────────────────────────────
   async function analyserDrift(ticker, earningsDate) {
     try {
       const response = await fetch('/api/claude', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          system: `Tu es un analyste drift pre-earnings. Retourne UNIQUEMENT un JSON valide sans backticks ni markdown :
-{"drift_score": 0-10, "signal": "FORT ou MODERE ou FAIBLE ou NEUTRE", "secteur": "secteur", "base_rate": number, "analyse": "narrative 2-3 lignes"}`,
-          messages: [{ role: 'user', content: `Analyse drift pre-earnings pour ${ticker} avec publication le ${earningsDate}` }]
+          system: "Tu es un analyste drift pre-earnings. Retourne UNIQUEMENT un JSON valide sans backticks ni markdown : {\"drift_score\": 0-10, \"signal\": \"FORT ou MODERE ou FAIBLE ou NEUTRE\", \"secteur\": \"secteur\", \"base_rate\": number, \"analyse\": \"narrative 2-3 lignes\"}",
+          messages: [{ role: 'user', content: "Analyse drift pre-earnings pour " + ticker + " avec publication le " + earningsDate }]
         }),
       });
       const data = await response.json();
-      const text = data.content?.[0]?.text ?? '{}';
+      const text = data.content && data.content[0] ? data.content[0].text : '{}';
       const clean = text.replace(/```json|```/g, '').trim();
       return JSON.parse(clean);
     } catch (e) {
@@ -144,14 +204,14 @@ Si tu ne trouves pas l'info, mets null. Ne fais pas de suppositions sur les chif
   }
 
   async function ajouterWatchlist(item) {
-    setLoading(true);
+    setLoadingTicker(item.symbol);
     try {
       const analyse = await analyserDrift(item.symbol, item.date);
       await supabase.from('drift_watchlist').upsert({
         ticker: item.symbol,
         company_name: item.name || item.symbol,
         earnings_date: item.date,
-        secteur: analyse.secteur,
+        secteur: item.secteur || analyse.secteur,
         base_rate: analyse.base_rate,
         drift_score: analyse.drift_score,
         signal: analyse.signal,
@@ -159,11 +219,11 @@ Si tu ne trouves pas l'info, mets null. Ne fais pas de suppositions sur les chif
         statut: 'WATCHING',
       }, { onConflict: 'ticker' });
       await loadWatchlist();
-      setView('watchlist');
+      setResumeTicker(null);
     } catch (e) {
       alert('Erreur ajout watchlist');
     }
-    setLoading(false);
+    setLoadingTicker(null);
   }
 
   async function updateStatut(id, statut) {
@@ -179,6 +239,68 @@ Si tu ne trouves pas l'info, mets null. Ne fais pas de suppositions sur les chif
   const signalColor = { 'FORT': '#3fb950', 'MODERE': '#58a6ff', 'FAIBLE': '#e3b341', 'NEUTRE': '#484f58' };
   const statutColor = { 'WATCHING': '#58a6ff', 'ENTERED': '#3fb950', 'EXITED': '#484f58' };
   const hourColor = { 'BMO': '#3fb950', 'AMC': '#f0b429' };
+
+  function dejaEnWatchlist(symbol) {
+    return watchlist.some(function (w) { return w.ticker === symbol; });
+  }
+
+  // ─── Card réutilisable pour Portfolio + Nouveautés ───────────────────────────
+  function renderTickerCard(item, badgeLabel, badgeColor) {
+    const hourLabel = item.hour ? item.hour.toUpperCase() : null;
+    const estOuvert = resumeTicker === item.symbol;
+    const dejaAjoute = dejaEnWatchlist(item.symbol);
+
+    return (
+      <div key={item.symbol} style={{ background: '#161b22', border: '1px solid #30363d', borderRadius: '6px', padding: '10px', marginBottom: '8px' }}>
+        <div onClick={function () { ouvrirResume(item); }} style={{ cursor: 'pointer' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <span style={{ fontWeight: 'bold', fontSize: '14px' }}>{item.symbol}</span>
+              <span style={{ color: '#8b949e', fontSize: '11px', marginLeft: '8px' }}>{item.name || ''}</span>
+            </div>
+            <span style={{ background: badgeColor, color: '#000', fontSize: '9px', fontWeight: 'bold', padding: '2px 6px', borderRadius: '4px', flexShrink: 0 }}>
+              {badgeLabel}
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '4px', flexWrap: 'wrap' }}>
+            <span style={{ color: '#8b949e', fontSize: '11px' }}>📅 {item.date}</span>
+            {hourLabel && (
+              <span style={{ background: hourColor[hourLabel] || '#484f58', color: '#000', fontSize: '9px', fontWeight: 'bold', padding: '1px 6px', borderRadius: '4px' }}>
+                {hourLabel}
+              </span>
+            )}
+            {item.secteur && <span style={{ color: '#8b949e', fontSize: '11px' }}>{item.secteur}</span>}
+            {item.epsEstimate != null && <span style={{ color: '#8b949e', fontSize: '11px' }}>EPS est: ${item.epsEstimate}</span>}
+            {dejaAjoute && <span style={{ color: '#3fb950', fontSize: '10px' }}>✓ en watchlist</span>}
+          </div>
+        </div>
+
+        {estOuvert && (
+          <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid #30363d' }}>
+            {resumeLoading ? (
+              <p style={{ color: '#8b949e', fontSize: '11px' }}>Analyse en cours...</p>
+            ) : (
+              <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '11px', color: '#c9d1d9', lineHeight: '1.5', margin: 0, marginBottom: '10px' }}>
+                {resumeText}
+              </pre>
+            )}
+            <div style={{ display: 'flex', gap: '6px' }}>
+              {!dejaAjoute && (
+                <button onClick={function () { ajouterWatchlist(item); }} disabled={loadingTicker === item.symbol}
+                  style={{ padding: '6px 12px', background: '#f0b429', color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '11px' }}>
+                  {loadingTicker === item.symbol ? '...' : '+ Ajouter à la watchlist'}
+                </button>
+              )}
+              <button onClick={function () { setResumeTicker(null); }}
+                style={{ padding: '6px 12px', background: '#21262d', color: '#8b949e', border: '1px solid #30363d', borderRadius: '4px', cursor: 'pointer', fontSize: '11px' }}>
+                ✕ Fermer
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div style={{ padding: '16px', fontFamily: 'monospace', color: '#e6edf3' }}>
@@ -199,17 +321,19 @@ Si tu ne trouves pas l'info, mets null. Ne fais pas de suppositions sur les chif
           { color: '#e3b341', text: 'J-0 Option B → Garder si signal earnings fort' },
           { color: '#f85149', text: 'STOP si titre >+15% avant résultats → sortir' },
           { color: '#e3b341', text: 'Stop loss drift : -7% | Trailing stop à +5% → break-even' },
-        ].map((r, i) => (
-          <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '4px' }}>
-            <span style={{ color: r.color, fontSize: '11px' }}>●</span>
-            <span style={{ color: '#c9d1d9', fontSize: '11px' }}>{r.text}</span>
-          </div>
-        ))}
+        ].map(function (r, i) {
+          return (
+            <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '4px' }}>
+              <span style={{ color: r.color, fontSize: '11px' }}>●</span>
+              <span style={{ color: '#c9d1d9', fontSize: '11px' }}>{r.text}</span>
+            </div>
+          );
+        })}
       </div>
 
       {/* TABS */}
       <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-        <button onClick={() => setView('watchlist')}
+        <button onClick={function () { setView('watchlist'); }}
           style={{ flex: 1, padding: '8px', background: view === 'watchlist' ? '#f0b429' : '#21262d', color: view === 'watchlist' ? '#000' : '#e6edf3', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
           Watchlist ({watchlist.length})
         </button>
@@ -228,45 +352,47 @@ Si tu ne trouves pas l'info, mets null. Ne fais pas de suppositions sur les chif
               <p style={{ fontSize: '11px', marginTop: '4px' }}>Clique sur "Calendrier 30J" pour scanner</p>
             </div>
           ) : (
-            watchlist.map(item => (
-              <div key={item.id} style={{ background: '#161b22', border: '1px solid #30363d', borderRadius: '8px', padding: '12px', marginBottom: '10px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                  <div>
-                    <span style={{ fontWeight: 'bold', fontSize: '15px' }}>{item.ticker}</span>
-                    <span style={{ color: '#8b949e', fontSize: '11px', marginLeft: '8px' }}>{item.company_name}</span>
+            watchlist.map(function (item) {
+              return (
+                <div key={item.id} style={{ background: '#161b22', border: '1px solid #30363d', borderRadius: '8px', padding: '12px', marginBottom: '10px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <div>
+                      <span style={{ fontWeight: 'bold', fontSize: '15px' }}>{item.ticker}</span>
+                      <span style={{ color: '#8b949e', fontSize: '11px', marginLeft: '8px' }}>{item.company_name}</span>
+                    </div>
+                    <span style={{ background: signalColor[item.signal] || '#484f58', color: '#000', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold' }}>
+                      {item.signal}
+                    </span>
                   </div>
-                  <span style={{ background: signalColor[item.signal] || '#484f58', color: '#000', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold' }}>
-                    {item.signal}
-                  </span>
-                </div>
-                <div style={{ display: 'flex', gap: '12px', fontSize: '11px', color: '#8b949e', marginBottom: '6px' }}>
-                  <span>📅 {item.earnings_date}</span>
-                  <span>🎯 {item.drift_score}/10</span>
-                  <span>📊 {item.base_rate}%</span>
-                  <span>{item.secteur}</span>
-                </div>
-                <p style={{ fontSize: '11px', color: '#c9d1d9', marginBottom: '8px', lineHeight: '1.5' }}>{item.analyse_narrative}</p>
-                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                  <span style={{ background: statutColor[item.statut], color: '#000', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold' }}>{item.statut}</span>
-                  {item.statut === 'WATCHING' && (
-                    <button onClick={() => updateStatut(item.id, 'ENTERED')}
-                      style={{ padding: '2px 8px', background: '#3fb950', color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '10px', fontWeight: 'bold' }}>
-                      ENTRER
+                  <div style={{ display: 'flex', gap: '12px', fontSize: '11px', color: '#8b949e', marginBottom: '6px' }}>
+                    <span>📅 {item.earnings_date}</span>
+                    <span>🎯 {item.drift_score}/10</span>
+                    <span>📊 {item.base_rate}%</span>
+                    <span>{item.secteur}</span>
+                  </div>
+                  <p style={{ fontSize: '11px', color: '#c9d1d9', marginBottom: '8px', lineHeight: '1.5' }}>{item.analyse_narrative}</p>
+                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                    <span style={{ background: statutColor[item.statut], color: '#000', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold' }}>{item.statut}</span>
+                    {item.statut === 'WATCHING' && (
+                      <button onClick={function () { updateStatut(item.id, 'ENTERED'); }}
+                        style={{ padding: '2px 8px', background: '#3fb950', color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '10px', fontWeight: 'bold' }}>
+                        ENTRER
+                      </button>
+                    )}
+                    {item.statut === 'ENTERED' && (
+                      <button onClick={function () { updateStatut(item.id, 'EXITED'); }}
+                        style={{ padding: '2px 8px', background: '#f85149', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '10px', fontWeight: 'bold' }}>
+                        SORTIR
+                      </button>
+                    )}
+                    <button onClick={function () { supprimerTitre(item.id); }}
+                      style={{ padding: '2px 8px', background: '#21262d', color: '#8b949e', border: '1px solid #30363d', borderRadius: '4px', cursor: 'pointer', fontSize: '10px' }}>
+                      ✕
                     </button>
-                  )}
-                  {item.statut === 'ENTERED' && (
-                    <button onClick={() => updateStatut(item.id, 'EXITED')}
-                      style={{ padding: '2px 8px', background: '#f85149', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '10px', fontWeight: 'bold' }}>
-                      SORTIR
-                    </button>
-                  )}
-                  <button onClick={() => supprimerTitre(item.id)}
-                    style={{ padding: '2px 8px', background: '#21262d', color: '#8b949e', border: '1px solid #30363d', borderRadius: '4px', cursor: 'pointer', fontSize: '10px' }}>
-                    ✕
-                  </button>
+                  </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       )}
@@ -274,54 +400,26 @@ Si tu ne trouves pas l'info, mets null. Ne fais pas de suppositions sur les chif
       {/* CALENDRIER */}
       {view === 'calendrier' && (
         <div>
-          {/* Statut enrichissement */}
-          {enrichStatus !== '' && (
-            <p style={{ fontSize: '11px', color: enriching ? '#58a6ff' : '#3fb950', marginBottom: '10px' }}>
-              {enrichStatus}
-            </p>
+          {/* SECTION PORTFOLIO */}
+          <p style={{ color: '#f0b429', fontSize: '12px', fontWeight: 'bold', marginBottom: '8px' }}>
+            📂 Mon portfolio ({calendrierPortfolio.length})
+          </p>
+          {calendrierPortfolio.length === 0 ? (
+            <p style={{ color: '#8b949e', fontSize: '11px', marginBottom: '16px' }}>Aucune publication sur 30J parmi tes tickers IBKR.</p>
+          ) : (
+            <div style={{ marginBottom: '16px' }}>
+              {calendrierPortfolio.map(function (item) { return renderTickerCard(item, 'PORTFOLIO', '#58a6ff'); })}
+            </div>
           )}
 
-          {calendrier.length === 0 ? (
-            <div style={{ textAlign: 'center', color: '#8b949e', padding: '24px', fontSize: '12px' }}>
-              Aucune publication trouvée
-            </div>
-          ) : (
-            <div>
-              <p style={{ color: '#8b949e', fontSize: '11px', marginBottom: '12px' }}>
-                {calendrier.length} publications — clique + pour analyser et ajouter à la watchlist
-              </p>
-              {calendrier.map((item, i) => (
-                <div key={i} style={{ background: '#161b22', border: '1px solid #30363d', borderRadius: '6px', padding: '10px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <span style={{ fontWeight: 'bold', fontSize: '13px' }}>{item.symbol}</span>
-                    <span style={{ color: '#8b949e', fontSize: '11px', marginLeft: '8px' }}>{item.date}</span>
-                    {/* Timing BMO/AMC — badge coloré si disponible */}
-                    {item.hour && (
-                      <span style={{ background: hourColor[item.hour] || '#484f58', color: '#000', fontSize: '10px', fontWeight: 'bold', padding: '1px 6px', borderRadius: '4px', marginLeft: '6px' }}>
-                        {item.hour}
-                      </span>
-                    )}
-                    {/* EPS estimate */}
-                    {item.epsEstimate != null && (
-                      <span style={{ color: '#8b949e', fontSize: '11px', marginLeft: '8px' }}>
-                        EPS est: ${item.epsEstimate}
-                      </span>
-                    )}
-                    {/* Revenue estimate si enrichi */}
-                    {item.revenueEstimate != null && (
-                      <span style={{ color: '#8b949e', fontSize: '11px', marginLeft: '8px' }}>
-                        Rev: ${(item.revenueEstimate / 1e6).toFixed(0)}M
-                      </span>
-                    )}
-                  </div>
-                  <button onClick={() => ajouterWatchlist(item)} disabled={loading}
-                    style={{ padding: '4px 12px', background: '#f0b429', color: '#000', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', flexShrink: 0, marginLeft: '8px' }}>
-                    {loading ? '...' : '+'}
-                  </button>
-                </div>
-              ))}
-            </div>
+          {/* SECTION NOUVEAUTES */}
+          <p style={{ color: '#f0b429', fontSize: '12px', fontWeight: 'bold', marginBottom: '8px' }}>
+            ✨ Nouveautés — tes secteurs ({calendrierNouveautes.length})
+          </p>
+          {nouveauteStatus && (
+            <p style={{ fontSize: '11px', color: '#58a6ff', marginBottom: '10px' }}>{nouveauteStatus}</p>
           )}
+          {calendrierNouveautes.map(function (item) { return renderTickerCard(item, 'NOUVEAU', '#3fb950'); })}
         </div>
       )}
     </div>
