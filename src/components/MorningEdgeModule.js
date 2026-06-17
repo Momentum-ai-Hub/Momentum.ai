@@ -4,17 +4,22 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { getCouchesData } from "../lib/api";
 
 // ─────────────────────────────────────────────────────────────────
-// LAYOUT CONSTANTS
-// PANEL_W  = 18% de chaque côté (left/right absolu)
-// TRUNK_ML = 20% marginLeft (18% panneau + 2% gap)
-// TRUNK_MR = 20% marginRight
-// TRUNK_W  = 60% => 20+60+20 = 100%
+// LAYOUT CONSTANTS (canvas interne de la carte, largeur de référence 1200px)
+//   EXTERIOR (7.5%)  PANEL_W (17%)  [gap]  TRUNK_W (51%)  [gap]  PANEL_W (17%)  EXTERIOR (7.5%)
+//   7.5 + 17 + 51 + 17 + 7.5 = 100  → le tronc est centré, marge = EXTERIOR + PANEL_W
 // ─────────────────────────────────────────────────────────────────
 
-var PANEL_W  = "18%";
-var TRUNK_ML = "20%";
-var TRUNK_MR = "20%";
-var TRUNK_W  = "60%";
+var PANEL_W   = "17%";
+var EXTERIOR  = "7.5%";
+var TRUNK_W   = "51%";
+var TRUNK_ML  = "24.5%"; // EXTERIOR + PANEL_W
+var TRUNK_MR  = "24.5%";
+
+// Largeur de référence du canvas (px) — sert de base au zoom / fit-to-screen
+var CONTENT_W = 1200;
+var ZOOM_MIN  = 0.25;
+var ZOOM_MAX  = 1;
+var ZOOM_STEP = 0.1;
 
 // ─────────────────────────────────────────────────────────────────
 // HELPERS
@@ -45,8 +50,7 @@ function aggregateScore(clusters) {
 
 // ─────────────────────────────────────────────────────────────────
 // SECTION RECTANGLE
-// width: 100% dans son container flex
-// Pas de troncature sur le nom
+// width: 100% dans son container flex, pas de troncature sur le nom
 // ─────────────────────────────────────────────────────────────────
 
 function SectionRect(props) {
@@ -78,7 +82,6 @@ function SectionRect(props) {
         boxSizing: "border-box",
       }}
     >
-      {/* Nom section — complet, pas de troncature */}
       <div style={{
         fontSize: 11, fontWeight: 700, color: "#D0DCE8",
         lineHeight: 1.3, marginBottom: 6,
@@ -87,14 +90,12 @@ function SectionRect(props) {
       }}>
         {section.title || section.id}
       </div>
-      {/* Score + nb tickers */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <span style={{ fontSize: 11, fontWeight: 800, color: color }}>
           {Math.round(prob * 100)}%
         </span>
         <span style={{ fontSize: 9, color: "#3D5166" }}>{nb}tk</span>
       </div>
-      {/* Barre de score */}
       <div style={{ height: 3, borderRadius: 2, background: "#1C2940", marginTop: 5, overflow: "hidden" }}>
         <div style={{
           height: "100%", borderRadius: 2,
@@ -109,7 +110,8 @@ function SectionRect(props) {
 
 // ─────────────────────────────────────────────────────────────────
 // LAYER BLOCK
-// Max 3 sections par ligne : flex: 1 1 calc(33% - 8px)
+// oneColumn=true  → 1 section par ligne (panneaux latéraux Power/Thermal/Security/Edge)
+// oneColumn=false → 3 sections par ligne (tronc L1-L12, et panneau Macro)
 // ─────────────────────────────────────────────────────────────────
 
 function LayerBlock(props) {
@@ -119,6 +121,7 @@ function LayerBlock(props) {
   var onSelect   = props.onSelect;
   var selectedId = props.selectedId;
   var isPanel    = props.isPanel || false;
+  var oneColumn  = props.oneColumn || false;
 
   var layerClusters = sections.map(function(s) {
     return scoreMap[s.id] || null;
@@ -128,6 +131,9 @@ function LayerBlock(props) {
   var bg       = isPanel ? (props.panelBg    || "#08090d") : (layer.bg || "#060e1a");
   var totalTk  = sections.reduce(function(a, s) { return a + (s.tickers ? s.tickers.length : 0); }, 0);
   var aggColor = signalColor(agg.direction, agg.probability);
+
+  var sectionBasis = oneColumn ? "1 1 100%" : "1 1 calc(33% - 8px)";
+  var sectionMaxW  = oneColumn ? "100%" : "calc(33% - 8px)";
 
   return (
     <div style={{
@@ -167,7 +173,7 @@ function LayerBlock(props) {
         </span>
       </div>
 
-      {/* Sections — max 3 par ligne */}
+      {/* Sections */}
       <div style={{
         padding: "10px 12px",
         display: "flex", flexWrap: "wrap", gap: 8,
@@ -176,9 +182,9 @@ function LayerBlock(props) {
           var cluster = scoreMap[sec.id] || null;
           return (
             <div key={sec.id || idx} style={{
-              flex: "1 1 calc(33% - 8px)",
+              flex: sectionBasis,
               minWidth: 0,
-              maxWidth: "calc(33% - 8px)",
+              maxWidth: sectionMaxW,
             }}>
               <SectionRect
                 section={sec}
@@ -235,7 +241,6 @@ function DetailPanel(props) {
       border: "2px solid " + color + "44",
       borderRadius: 14, padding: 16, marginBottom: 14,
     }}>
-      {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
         <div>
           <div style={{ fontSize: 8, letterSpacing: 2, color: color, marginBottom: 4, fontWeight: 800, fontFamily: "monospace" }}>
@@ -255,7 +260,6 @@ function DetailPanel(props) {
         }}>✕</button>
       </div>
 
-      {/* Tous les tickers */}
       <div style={{ marginBottom: 14 }}>
         <div style={{ fontSize: 9, letterSpacing: 2, color: "#3D5166", fontWeight: 700, marginBottom: 8, fontFamily: "monospace" }}>
           {"TICKERS (" + tickers.length + ")"}
@@ -281,7 +285,6 @@ function DetailPanel(props) {
         </div>
       </div>
 
-      {/* Propagation causale */}
       {causalSignals.length > 0 && (
         <div style={{ marginBottom: 10 }}>
           <div style={{ fontSize: 9, letterSpacing: 2, color: "#00B4FF88", fontWeight: 700, marginBottom: 6, fontFamily: "monospace" }}>
@@ -303,7 +306,6 @@ function DetailPanel(props) {
         </div>
       )}
 
-      {/* Leaders actifs */}
       {directSignals.length > 0 && (
         <div>
           <div style={{ fontSize: 9, letterSpacing: 2, color: "#3D5166", fontWeight: 700, marginBottom: 8, fontFamily: "monospace" }}>
@@ -464,11 +466,11 @@ function SignalSummaryBar(props) {
 
 // ─────────────────────────────────────────────────────────────────
 // SUPPLY CHAIN MAP
-// Layout corrigé :
-//   - Wrapper position:relative, minWidth 1200px (géré par le parent)
-//   - Panneaux en position:absolute, left/right = 0, width = PANEL_W
-//   - Tronc central : marginLeft = TRUNK_ML, marginRight = TRUNK_MR, width = TRUNK_W
-//   - Pas de chevauchement : 20% + 60% + 20% = 100%
+// Reçoit "zoom" en prop : indispensable pour corriger les mesures
+// getBoundingClientRect() des ancres L5/L9/L11, qui sont rendues en
+// pixels écran déjà mis à l'échelle par l'ancêtre transform:scale().
+// On divise par zoom pour revenir aux coordonnées locales (non
+// mises à l'échelle), seules valides comme valeur CSS "top".
 // ─────────────────────────────────────────────────────────────────
 
 var PANEL_COLORS = {
@@ -484,6 +486,7 @@ function SupplyChainMap(props) {
   var scoreMap    = props.scoreMap;
   var onSelect    = props.onSelect;
   var selectedId  = props.selectedId;
+  var zoom        = props.zoom || 1;
 
   var layers = couchesData.layers;
   var panels = couchesData.panels;
@@ -518,7 +521,7 @@ function SupplyChainMap(props) {
     );
   }
 
-  function renderPanelBlock(panel, panelId) {
+  function renderPanelBlock(panel, panelId, oneColumn) {
     if (!panel) return null;
     var pc = PANEL_COLORS[panelId] || { cc: "#94a3b8", bg: "#08090d" };
     return (
@@ -529,6 +532,7 @@ function SupplyChainMap(props) {
         onSelect={onSelect}
         selectedId={selectedId}
         isPanel={true}
+        oneColumn={oneColumn}
         panelColor={pc.cc}
         panelBg={pc.bg}
       />
@@ -546,19 +550,29 @@ function SupplyChainMap(props) {
   useEffect(function() {
     function measure() {
       if (!wrapRef.current) return;
-      var wrapTop = wrapRef.current.getBoundingClientRect().top + window.scrollY;
-      if (l5Ref.current)  setL5Top(l5Ref.current.getBoundingClientRect().top   + window.scrollY - wrapTop);
-      if (l9Ref.current)  setL9Top(l9Ref.current.getBoundingClientRect().top   + window.scrollY - wrapTop);
-      if (l11Ref.current) setL11Top(l11Ref.current.getBoundingClientRect().top + window.scrollY - wrapTop);
+      var z = zoom || 1;
+      var wrapRect = wrapRef.current.getBoundingClientRect();
+      if (l5Ref.current) {
+        var r5 = l5Ref.current.getBoundingClientRect();
+        setL5Top((r5.top - wrapRect.top) / z);
+      }
+      if (l9Ref.current) {
+        var r9 = l9Ref.current.getBoundingClientRect();
+        setL9Top((r9.top - wrapRect.top) / z);
+      }
+      if (l11Ref.current) {
+        var r11 = l11Ref.current.getBoundingClientRect();
+        setL11Top((r11.top - wrapRect.top) / z);
+      }
     }
     measure();
     window.addEventListener("resize", measure);
     return function() { window.removeEventListener("resize", measure); };
-  }, [layers, couchesData]);
+  }, [layers, couchesData, zoom]);
 
   return (
     <div style={{ width: "100%" }}>
-      {/* MACRO — pleine largeur */}
+      {/* MACRO — pleine largeur, grille normale (3/ligne) */}
       {macroPanel && (
         <div style={{ marginBottom: 6 }}>
           <div style={{
@@ -567,7 +581,7 @@ function SupplyChainMap(props) {
           }}>
             MACRO · WATCHLISTS — non relié au tronc
           </div>
-          {renderPanelBlock(macroPanel, "macro")}
+          {renderPanelBlock(macroPanel, "macro", false)}
           <Connector text="parallel — non causal" />
         </div>
       )}
@@ -575,10 +589,10 @@ function SupplyChainMap(props) {
       {/* Wrapper relatif — panneaux absolu + tronc décalé */}
       <div ref={wrapRef} style={{ position: "relative", width: "100%" }}>
 
-        {/* POWER — absolu à gauche, aligné sur L5 */}
+        {/* POWER — absolu à gauche, aligné sur L5, grille 1/ligne */}
         {powerPanel && l5Top > 0 && (
           <div style={{
-            position: "absolute", left: 0, top: l5Top,
+            position: "absolute", left: EXTERIOR, top: l5Top,
             width: PANEL_W,
           }}>
             <div style={{
@@ -587,14 +601,14 @@ function SupplyChainMap(props) {
             }}>
               {"◄ POWER INFRASTRUCTURE"}
             </div>
-            {renderPanelBlock(powerPanel, "power")}
+            {renderPanelBlock(powerPanel, "power", true)}
           </div>
         )}
 
-        {/* THERMAL — absolu à droite, aligné sur L5 */}
+        {/* THERMAL — absolu à droite, aligné sur L5, grille 1/ligne */}
         {thermalPanel && l5Top > 0 && (
           <div style={{
-            position: "absolute", right: 0, top: l5Top,
+            position: "absolute", right: EXTERIOR, top: l5Top,
             width: PANEL_W,
           }}>
             <div style={{
@@ -603,14 +617,14 @@ function SupplyChainMap(props) {
             }}>
               {"THERMAL ►"}
             </div>
-            {renderPanelBlock(thermalPanel, "thermal")}
+            {renderPanelBlock(thermalPanel, "thermal", true)}
           </div>
         )}
 
-        {/* SECURITY — absolu à droite, aligné sur L9 */}
+        {/* SECURITY — absolu à droite, aligné sur L9, grille 1/ligne */}
         {securityPanel && l9Top > 0 && (
           <div style={{
-            position: "absolute", right: 0, top: l9Top,
+            position: "absolute", right: EXTERIOR, top: l9Top,
             width: PANEL_W,
           }}>
             <div style={{
@@ -619,14 +633,14 @@ function SupplyChainMap(props) {
             }}>
               {"SECURITY ►"}
             </div>
-            {renderPanelBlock(securityPanel, "security")}
+            {renderPanelBlock(securityPanel, "security", true)}
           </div>
         )}
 
-        {/* EDGE — absolu à droite, aligné sur L11 */}
+        {/* EDGE — absolu à droite, aligné sur L11, grille 1/ligne */}
         {edgePanel && l11Top > 0 && (
           <div style={{
-            position: "absolute", right: 0, top: l11Top,
+            position: "absolute", right: EXTERIOR, top: l11Top,
             width: PANEL_W,
           }}>
             <div style={{
@@ -635,16 +649,11 @@ function SupplyChainMap(props) {
             }}>
               {"EDGE ►"}
             </div>
-            {renderPanelBlock(edgePanel, "edge")}
+            {renderPanelBlock(edgePanel, "edge", true)}
           </div>
         )}
 
-        {/* TRONC CENTRAL
-            marginLeft = TRUNK_ML (20%) laisse la place au panneau gauche (18%) + gap (2%)
-            marginRight = TRUNK_MR (20%) laisse la place aux panneaux droits (18%) + gap (2%)
-            width = TRUNK_W (60%)
-            => 20 + 60 + 20 = 100%, pas de chevauchement
-        */}
+        {/* TRONC CENTRAL — 51% de large, centré (marge = 24.5% de chaque côté) */}
         <div style={{
           width: TRUNK_W,
           marginLeft: TRUNK_ML,
@@ -678,14 +687,28 @@ function SupplyChainMap(props) {
 // COMPOSANT PRINCIPAL
 // ─────────────────────────────────────────────────────────────────
 
+var ZOOM_BTN_STYLE = {
+  background: "transparent", color: "#00B4FF", border: "none",
+  cursor: "pointer", fontSize: 14, fontWeight: 800, width: 22, height: 22,
+  fontFamily: "inherit", lineHeight: 1,
+};
+
 export default function MorningEdgeModule() {
-  const [apiData,      setApiData]      = useState(null);
-  const [couchesData,  setCouchesData]  = useState(null);
-  const [loading,      setLoading]      = useState(true);
-  const [error,        setError]        = useState(null);
-  const [lastFetch,    setLastFetch]    = useState(null);
-  const [selectedSec,  setSelectedSec]  = useState(null);
-  const [selectedClus, setSelectedClus] = useState(null);
+  const [apiData,       setApiData]       = useState(null);
+  const [couchesData,   setCouchesData]   = useState(null);
+  const [loading,       setLoading]       = useState(true);
+  const [error,         setError]         = useState(null);
+  const [lastFetch,     setLastFetch]     = useState(null);
+  const [selectedSec,   setSelectedSec]   = useState(null);
+  const [selectedClus,  setSelectedClus]  = useState(null);
+
+  // Zoom / vue d'ensemble
+  const [zoom,          setZoom]          = useState(1);
+  const [autoFit,       setAutoFit]       = useState(true);
+  const [fitZoom,       setFitZoom]       = useState(1);
+  const [contentHeight, setContentHeight] = useState(0);
+  const outerScrollRef = useRef(null);
+  const contentRef     = useRef(null);
 
   useEffect(function() {
     getCouchesData()
@@ -710,6 +733,59 @@ export default function MorningEdgeModule() {
 
   useEffect(function() { fetchApiData(false); }, [fetchApiData]);
 
+  // Mesure de la largeur disponible (fit) et de la hauteur réelle du contenu
+  useEffect(function() {
+    function measureFitAndHeight() {
+      if (outerScrollRef.current) {
+        var w = outerScrollRef.current.clientWidth;
+        var f = w / CONTENT_W;
+        if (f > ZOOM_MAX) f = ZOOM_MAX;
+        if (f < ZOOM_MIN) f = ZOOM_MIN;
+        setFitZoom(f);
+      }
+      if (contentRef.current) {
+        setContentHeight(contentRef.current.scrollHeight);
+      }
+    }
+    measureFitAndHeight();
+    var t1 = setTimeout(measureFitAndHeight, 300);
+    var t2 = setTimeout(measureFitAndHeight, 1000);
+    window.addEventListener("resize", measureFitAndHeight);
+    return function() {
+      window.removeEventListener("resize", measureFitAndHeight);
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [couchesData, apiData]);
+
+  // Si autoFit est actif, le zoom suit automatiquement le fit calculé
+  useEffect(function() {
+    if (autoFit) setZoom(fitZoom);
+  }, [fitZoom, autoFit]);
+
+  function handleZoomOut() {
+    setAutoFit(false);
+    setZoom(function(z) {
+      var nz = z - ZOOM_STEP;
+      return nz < ZOOM_MIN ? ZOOM_MIN : nz;
+    });
+  }
+  function handleZoomIn() {
+    setAutoFit(false);
+    setZoom(function(z) {
+      var nz = z + ZOOM_STEP;
+      return nz > ZOOM_MAX ? ZOOM_MAX : nz;
+    });
+  }
+  function handleFitView() {
+    setAutoFit(true);
+    setZoom(fitZoom);
+  }
+  function handleReset100() {
+    setAutoFit(false);
+    setZoom(1);
+  }
+
   var scoreMap = {};
   if (apiData && apiData.clusters) {
     apiData.clusters.forEach(function(c) { scoreMap[c.clusterId] = c; });
@@ -724,11 +800,14 @@ export default function MorningEdgeModule() {
     }
   }
 
-  var metaLeadersAvail  = apiData && apiData.meta ? apiData.meta.leadersAvailable : 0;
-  var metaLeadersTotal  = apiData && apiData.meta ? apiData.meta.totalLeaders     : 0;
-  var lastFetchTime     = lastFetch
+  var metaLeadersAvail = apiData && apiData.meta ? apiData.meta.leadersAvailable : 0;
+  var metaLeadersTotal = apiData && apiData.meta ? apiData.meta.totalLeaders     : 0;
+  var lastFetchTime    = lastFetch
     ? lastFetch.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
     : "";
+
+  var sizerHeight = contentHeight ? Math.round(contentHeight * zoom) : 400;
+  var sizerWidth  = Math.round(CONTENT_W * zoom);
 
   return (
     <div style={{
@@ -757,8 +836,7 @@ export default function MorningEdgeModule() {
           <p style={{ fontSize: 10, color: "#3D5166", margin: 0 }}>
             {"L1\u2192L12 · Bayesian Scoring · Structure Supabase"}
           </p>
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 5 }}>
+        </div>        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 5 }}>
           {apiData && (
             <div style={{
               fontSize: 9, color: "#546E7A",
@@ -836,22 +914,82 @@ export default function MorningEdgeModule() {
             />
           )}
 
-          {/* Cluster Map — scroll latéral libre desktop & mobile */}
-          {couchesData ? (
+          {/* Barre de zoom — reste dans le flux normal, largeur contrainte */}
+          {couchesData && (
             <div style={{
-              overflowX: "auto",
-              WebkitOverflowScrolling: "touch",
-              margin: "0 -14px",
-              padding: "0 14px 14px",
-              background: "#04080F",
+              display: "flex", justifyContent: "flex-end", alignItems: "center",
+              gap: 8, marginBottom: 8, flexWrap: "wrap",
             }}>
-              <div style={{ minWidth: 1200 }}>
-                <SupplyChainMap
-                  couchesData={couchesData}
-                  scoreMap={scoreMap}
-                  onSelect={handleSelect}
-                  selectedId={selectedSec ? selectedSec.id : null}
-                />
+              <button onClick={handleFitView} style={{
+                background: autoFit ? "#00B4FF22" : "#0B1120",
+                color: "#00B4FF", border: "1px solid #00B4FF33",
+                borderRadius: 6, padding: "5px 10px", cursor: "pointer",
+                fontSize: 10, fontFamily: "inherit", fontWeight: 700,
+              }}>{"⊡ Vue d'ensemble"}</button>
+
+              <div style={{
+                display: "flex", alignItems: "center", gap: 2,
+                background: "#0B1120", border: "1px solid #111B2D",
+                borderRadius: 6, padding: "1px 4px",
+              }}>
+                <button onClick={handleZoomOut} style={ZOOM_BTN_STYLE}>{"−"}</button>
+                <span style={{ fontSize: 10, color: "#78909C", minWidth: 36, textAlign: "center" }}>
+                  {Math.round(zoom * 100) + "%"}
+                </span>
+                <button onClick={handleZoomIn} style={ZOOM_BTN_STYLE}>{"+"}</button>
+              </div>
+
+              <button onClick={handleReset100} style={{
+                background: "#0B1120", color: "#78909C", border: "1px solid #111B2D",
+                borderRadius: 6, padding: "5px 10px", cursor: "pointer",
+                fontSize: 10, fontFamily: "inherit", fontWeight: 700,
+              }}>100%</button>
+            </div>
+          )}
+
+          {/* Cluster Map — full-bleed viewport, zoom + scroll libre
+              Technique full-bleed : position relative + left/right 50% + margin -50vw
+              casse la contrainte de largeur du conteneur parent (page.js) quel
+              que soit son niveau d'imbrication, car 100vw est relatif au viewport
+              et pas au parent. */}
+          {couchesData ? (
+            <div
+              ref={outerScrollRef}
+              style={{
+                position: "relative",
+                left: "50%",
+                right: "50%",
+                marginLeft: "-50vw",
+                marginRight: "-50vw",
+                width: "100vw",
+                overflow: "auto",
+                WebkitOverflowScrolling: "touch",
+                background: "#04080F",
+                boxSizing: "border-box",
+                padding: "0 14px 14px",
+              }}
+            >
+              <div style={{
+                width: sizerWidth + "px",
+                height: sizerHeight + "px",
+                position: "relative",
+              }}>
+                <div ref={contentRef} style={{
+                  width: CONTENT_W + "px",
+                  transform: "scale(" + zoom + ")",
+                  transformOrigin: "top left",
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                }}>
+                  <SupplyChainMap
+                    couchesData={couchesData}
+                    scoreMap={scoreMap}
+                    onSelect={handleSelect}
+                    selectedId={selectedSec ? selectedSec.id : null}
+                    zoom={zoom}
+                  />
+                </div>
               </div>
             </div>
           ) : (
