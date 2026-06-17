@@ -1,0 +1,15 @@
+name: snapshot-drip
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping-snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call snapshot route
+        run: |
+          curl -sS -w "\nHTTP %{http_code}\n" -X GET "${{ secrets.SNAPSHOT_URL }}" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
