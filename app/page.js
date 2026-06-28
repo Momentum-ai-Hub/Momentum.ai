@@ -50,12 +50,12 @@ var SIDEBAR_WIDTH = 220;
 var TOPBAR_HEIGHT = 56;
 
 var MARKETS = [
-  { id:'TYO', label:'TYO', tz:'Asia/Tokyo',         open:9,  close:15, off:0  },
-  { id:'HKG', label:'HKG', tz:'Asia/Hong_Kong',     open:9,  close:16, off:0  },
-  { id:'SEO', label:'SEO', tz:'Asia/Seoul',          open:9,  close:15, off:30 },
-  { id:'FRA', label:'FRA', tz:'Europe/Berlin',       open:9,  close:17, off:30 },
-  { id:'LON', label:'LON', tz:'Europe/London',       open:8,  close:16, off:30 },
-  { id:'NYC', label:'NYC', tz:'America/New_York',    open:9,  close:16, off:30 },
+  { id:'TYO', label:'TYO', tz:'Asia/Tokyo',      open:9, openM:0,  close:15, closeM:30 },
+  { id:'HKG', label:'HKG', tz:'Asia/Hong_Kong',  open:9, openM:30, close:16, closeM:0  },
+  { id:'SEO', label:'SEO', tz:'Asia/Seoul',       open:9, openM:0,  close:15, closeM:30 },
+  { id:'FRA', label:'FRA', tz:'Europe/Berlin',    open:9, openM:0,  close:17, closeM:30 },
+  { id:'LON', label:'LON', tz:'Europe/London',    open:8, openM:0,  close:16, closeM:30 },
+  { id:'NYC', label:'NYC', tz:'America/New_York', open:9, openM:30, close:16, closeM:0  },
 ];
 
 function getMarketStatus(tz, openH, openM, closeH, closeM) {
@@ -87,11 +87,10 @@ function getMarketStatus(tz, openH, openM, closeH, closeM) {
 
 function getMarketTime(tz) {
   var now = new Date();
-  var formatter = new Intl.DateTimeFormat('fr-FR', {
+  return new Intl.DateTimeFormat('fr-FR', {
     timeZone: tz,
     hour:'2-digit', minute:'2-digit', hour12:false,
-  });
-  return formatter.format(now);
+  }).format(now);
 }
 
 function MarketClocks() {
@@ -106,33 +105,36 @@ function MarketClocks() {
 
   return (
     <div style={{
-      display:'flex', alignItems:'center', gap:'12px', overflowX:'auto',
+      display:'flex', alignItems:'center', justifyContent:'center',
+      gap:'20px', flex:1,
     }}>
       {MARKETS.map(function(m) {
-        var openM  = m.off > 0 ? m.open  : m.open;
-        var closeM = m.off > 0 ? m.close : m.close;
-        var status = getMarketStatus(m.tz, m.open, m.off, m.close, m.off);
-        var time   = getMarketTime(m.tz);
+        var status   = getMarketStatus(m.tz, m.open, m.openM, m.close, m.closeM);
+        var time     = getMarketTime(m.tz);
         var dotColor = status === 'open' ? '#22c55e' : status === 'pre' ? '#f59e0b' : '#374151';
-        var timeColor = status === 'open' ? '#c8eaff' : '#4a5568';
 
         return (
           <div key={m.id} style={{
-            display:'flex', alignItems:'center', gap:'5px', flexShrink:0,
+            display:'flex', flexDirection:'column', alignItems:'center', gap:'2px',
           }}>
-            <div style={{
-              width:'5px', height:'5px', borderRadius:'50%',
-              background: dotColor, flexShrink:0,
-            }} />
+            <div style={{ display:'flex', alignItems:'center', gap:'4px' }}>
+              <div style={{
+                width:'5px', height:'5px', borderRadius:'50%',
+                background: dotColor, flexShrink:0,
+              }} />
+              <span style={{
+                fontSize:'10px', fontWeight:600,
+                color:'rgba(168,216,240,0.5)',
+                fontFamily:'monospace', letterSpacing:'0.5px',
+              }}>
+                {m.label}
+              </span>
+            </div>
             <span style={{
-              fontSize:'10px', fontWeight:600, color:'#4a5568',
-              fontFamily:'monospace', letterSpacing:'0.5px',
-            }}>
-              {m.label}
-            </span>
-            <span style={{
-              fontSize:'10px', fontWeight:500, color: timeColor,
-              fontFamily:'monospace',
+              fontSize:'13px', fontWeight:600,
+              color:'#a8d8f0',
+              fontFamily:'monospace', letterSpacing:'1px',
+              textShadow:'0 0 10px rgba(168,216,240,0.45)',
             }}>
               {time}
             </span>
@@ -176,11 +178,11 @@ function renderModule(active) {
 }
 
 function SidebarItem(props) {
-  var section    = props.section;
-  var active     = props.active;
-  var onSelect   = props.onSelect;
-  var expanded   = props.expanded;
-  var onToggle   = props.onToggle;
+  var section  = props.section;
+  var active   = props.active;
+  var onSelect = props.onSelect;
+  var expanded = props.expanded;
+  var onToggle = props.onToggle;
 
   var hasChildren    = section.children && section.children.length > 0;
   var isParentActive = active === section.id || (
@@ -293,14 +295,12 @@ export default function Home() {
   var now     = new Date();
   var dateStr = now.toLocaleDateString('fr-FR', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
   var dateDisplay = dateStr.charAt(0).toUpperCase() + dateStr.slice(1);
-
-  var sidebarWidth = sidebarOpen ? SIDEBAR_WIDTH : 0;
-  var marginLeft   = isMobile ? 0 : (sidebarOpen ? SIDEBAR_WIDTH : 0);
+  var marginLeft  = isMobile ? 0 : (sidebarOpen ? SIDEBAR_WIDTH : 0);
 
   return (
     <div style={{
       minHeight:'100vh',
-      background:'#c8cbc5',
+      background:'#505d6b',
       display:'flex',
       fontFamily:'Inter, -apple-system, sans-serif',
     }}>
@@ -311,7 +311,7 @@ export default function Home() {
           onClick={function() { setSidebar(false); }}
           style={{
             position:'fixed', inset:0,
-            background:'rgba(0,0,0,0.5)',
+            background:'rgba(0,0,0,0.55)',
             zIndex:90,
           }}
         />
@@ -334,14 +334,13 @@ export default function Home() {
           overflowX:'hidden',
         }}>
 
-          {/* HEADER SIDEBAR */}
+          {/* HEADER SIDEBAR — sans hamburger */}
           <div style={{
             height: TOPBAR_HEIGHT + 'px',
             minHeight: TOPBAR_HEIGHT + 'px',
             display:'flex',
             alignItems:'center',
-            justifyContent:'space-between',
-            padding:'0 12px 0 16px',
+            padding:'0 16px',
             borderBottom:'1px solid #1a2332',
             flexShrink:0,
           }}>
@@ -349,6 +348,7 @@ export default function Home() {
               <div style={{
                 fontSize:'15px', fontWeight:800, color:'#c8eaff',
                 fontFamily:'Inter, sans-serif', letterSpacing:'-0.4px',
+                textShadow:'0 0 12px rgba(168,216,240,0.4)',
               }}>
                 Bloombi
               </div>
@@ -356,18 +356,6 @@ export default function Home() {
                 Terminal financier
               </div>
             </div>
-            <button
-              onClick={function() { setSidebar(false); }}
-              style={{
-                background:'none', border:'none', cursor:'pointer',
-                padding:'6px', display:'flex', flexDirection:'column',
-                gap:'4px', alignItems:'center',
-              }}
-            >
-              <div style={{ width:'16px', height:'1.5px', background:'#4a5568', borderRadius:'1px' }} />
-              <div style={{ width:'16px', height:'1.5px', background:'#4a5568', borderRadius:'1px' }} />
-              <div style={{ width:'16px', height:'1.5px', background:'#4a5568', borderRadius:'1px' }} />
-            </button>
           </div>
 
           {/* NAV */}
@@ -386,7 +374,7 @@ export default function Home() {
             })}
           </nav>
 
-          {/* PIED SIDEBAR */}
+          {/* PIED */}
           <div style={{
             padding:'12px 16px',
             borderTop:'1px solid #1a2332',
@@ -414,20 +402,20 @@ export default function Home() {
           borderBottom:'1px solid #1a2332',
           display:'flex',
           alignItems:'center',
-          gap:'16px',
-          padding:'0 16px 0 12px',
+          padding:'0 16px',
           position:'sticky',
           top:0,
           zIndex:50,
         }}>
 
-          {/* HAMBURGER */}
+          {/* HAMBURGER — unique, dans topbar uniquement */}
           <button
             onClick={function() { setSidebar(function(p) { return !p; }); }}
             style={{
               background:'none', border:'none', cursor:'pointer',
               padding:'6px', display:'flex', flexDirection:'column',
               gap:'4px', alignItems:'center', flexShrink:0,
+              marginRight:'12px',
             }}
           >
             <div style={{ width:'16px', height:'1.5px', background:'#6b7280', borderRadius:'1px' }} />
@@ -437,22 +425,22 @@ export default function Home() {
 
           {/* DATE */}
           <div style={{
-            fontSize:'11px', fontWeight:500, color:'#6b7280',
-            whiteSpace:'nowrap', flexShrink:0,
+            fontSize:'11px', fontWeight:500,
+            color:'#a8d8f0',
+            textShadow:'0 0 10px rgba(168,216,240,0.4)',
+            whiteSpace:'nowrap', flexShrink:0, marginRight:'16px',
           }}>
             {dateDisplay}
           </div>
 
           {/* SEPARATEUR */}
-          <div style={{ width:'1px', height:'20px', background:'#1a2332', flexShrink:0 }} />
+          <div style={{ width:'1px', height:'20px', background:'#1a2332', flexShrink:0, marginRight:'16px' }} />
 
-          {/* HORLOGES */}
-          <div style={{ flex:1, overflow:'hidden' }}>
-            <MarketClocks />
-          </div>
+          {/* HORLOGES CENTREES */}
+          <MarketClocks />
 
           {/* CAPITAL */}
-          <div style={{ textAlign:'right', flexShrink:0 }}>
+          <div style={{ textAlign:'right', flexShrink:0, marginLeft:'16px' }}>
             <div style={{ fontSize:'12px', fontWeight:700, color:'#22c55e' }}>300 EUR</div>
             <div style={{ fontSize:'9px', color:'#4a5568' }}>Capital</div>
           </div>
@@ -462,7 +450,7 @@ export default function Home() {
         <div style={{
           flex:1,
           padding:'24px',
-          background:'#c8cbc5',
+          background:'#505d6b',
         }}>
           {renderModule(active)}
         </div>
