@@ -299,7 +299,7 @@ export default function Home() {
   return (
     <div style={{
       minHeight:'100vh',
-      background:'#8f9fa8',
+      background:'#6a7e8a',
       display:'flex',
       fontFamily:'Inter, -apple-system, sans-serif',
     }}>
@@ -324,7 +324,7 @@ export default function Home() {
           height:'100vh',
           position:'fixed',
           top:0, left:0,
-          background:'#101f37',
+          background:'#0d1a2e',
           borderRight:'1px solid #1a2e4a',
           display:'flex',
           flexDirection:'column',
@@ -397,7 +397,7 @@ export default function Home() {
         {/* TOPBAR */}
         <div style={{
           height: TOPBAR_HEIGHT + 'px',
-          background:'#101f37',
+          background:'#0d1a2e',
           borderBottom:'1px solid #1a2e4a',
           display:'flex',
           alignItems:'center',
@@ -449,7 +449,7 @@ export default function Home() {
         <div style={{
           flex:1,
           padding:'24px',
-          background:'#8f9fa8',
+          background:'#6a7e8a',
         }}>
           {renderModule(active)}
         </div>
