@@ -133,7 +133,7 @@ function MarketClocks() {
               fontSize:'13px', fontWeight:600,
               color:'#a8d8f0',
               fontFamily:'monospace', letterSpacing:'1px',
-              textShadow:'0 0 8px rgba(168,216,240,0.35)',
+              textShadow:'0 0 14px rgba(168,216,240,0.8)',
             }}>
               {time}
             </span>
@@ -347,7 +347,7 @@ export default function Home() {
               <div style={{
                 fontSize:'15px', fontWeight:800, color:'#c8eaff',
                 fontFamily:'Inter, sans-serif', letterSpacing:'-0.4px',
-                textShadow:'0 0 14px rgba(168,216,240,0.8)',
+                textShadow:'0 0 8px rgba(168,216,240,0.35)',
               }}>
                 Bloombi
               </div>
