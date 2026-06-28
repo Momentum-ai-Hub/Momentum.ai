@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import EarningsModule from '../src/components/EarningsModule';
 import DriftModule from '../src/components/DriftModule';
 import MomentumModule from '../src/components/MomentumModule';
@@ -13,50 +13,41 @@ import TrackRecordModule from '../src/components/TrackRecordModule';
 
 var SECTIONS = [
   {
-    id: 'A',
-    label: 'Analyse',
-    icon: 'A',
-    children: [
+    id: 'A', label: 'Analyse', children: [
       { id:'A1', label:'Description titre' },
       { id:'A2', label:'Analyse Deep' },
       { id:'A3', label:'These investissement' },
     ],
   },
   {
-    id: 'B',
-    label: 'Actualite',
-    icon: 'B',
-    children: [
+    id: 'B', label: 'Actualite', children: [
       { id:'B1', label:'Depeches temps reel' },
       { id:'B2', label:'Communiques entreprise' },
       { id:'B3', label:'Banques centrales' },
     ],
   },
   {
-    id: 'C',
-    label: 'Macro',
-    icon: 'C',
-    children: [
+    id: 'C', label: 'Macro', children: [
       { id:'C1', label:'Geopolitique' },
       { id:'C2', label:'Devises et PIB' },
       { id:'C3', label:'Matieres premieres' },
     ],
   },
-  { id:'D', label:'Graphique',    icon:'D', children:[] },
-  { id:'E', label:'Earnings',     icon:'E', children:[] },
+  { id:'D', label:'Graphique',    children:[] },
+  { id:'E', label:'Earnings',     children:[] },
   {
-    id: 'F',
-    label: 'Drift',
-    icon: 'F',
-    children: [
+    id: 'F', label: 'Drift', children: [
       { id:'F1', label:'Calendrier eco' },
       { id:'F2', label:'Suivi drift' },
     ],
   },
-  { id:'G', label:'Portfolio',    icon:'G', children:[] },
-  { id:'H', label:'Edge',         icon:'H', children:[] },
-  { id:'I', label:'Track Record', icon:'I', children:[] },
+  { id:'G', label:'Portfolio',    children:[] },
+  { id:'H', label:'Edge',         children:[] },
+  { id:'I', label:'Track Record', children:[] },
 ];
+
+var SIDEBAR_WIDTH = 220;
+var TOPBAR_HEIGHT = 56;
 
 function PlaceholderModule(props) {
   return (
@@ -65,7 +56,7 @@ function PlaceholderModule(props) {
       justifyContent:'center', height:'300px', gap:'12px',
     }}>
       <div style={{ fontSize:'13px', fontWeight:600, color:'#a8d8f0' }}>{props.label}</div>
-      <div style={{ fontSize:'11px', color:'#4a5568' }}>Module en cours de migration</div>
+      <div style={{ fontSize:'11px', color:'#6b7280' }}>Module en cours de migration</div>
     </div>
   );
 }
@@ -91,11 +82,12 @@ function renderModule(active) {
 }
 
 function SidebarItem(props) {
-  var section  = props.section;
-  var active   = props.active;
-  var onSelect = props.onSelect;
-  var expanded = props.expanded;
-  var onToggle = props.onToggle;
+  var section    = props.section;
+  var active     = props.active;
+  var onSelect   = props.onSelect;
+  var expanded   = props.expanded;
+  var onToggle   = props.onToggle;
+  var sidebarOpen = props.sidebarOpen;
 
   var hasChildren    = section.children && section.children.length > 0;
   var isParentActive = active === section.id || (
@@ -112,32 +104,38 @@ function SidebarItem(props) {
             onSelect(section.id);
           }
         }}
+        title={section.label}
         style={{
-          display:'flex', alignItems:'center', gap:'10px',
-          width:'100%', padding:'8px 16px',
-          background: isParentActive && !hasChildren ? 'rgba(168,216,240,0.08)' : 'none',
+          display:'flex', alignItems:'center', gap: sidebarOpen ? '10px' : '0px',
+          width:'100%',
+          padding: sidebarOpen ? '9px 16px' : '9px 0px',
+          justifyContent: sidebarOpen ? 'flex-start' : 'center',
+          background: isParentActive && !hasChildren ? 'rgba(168,216,240,0.10)' : 'none',
           border:'none', cursor:'pointer',
           borderLeft: isParentActive && !hasChildren ? '2px solid #a8d8f0' : '2px solid transparent',
           transition:'all 0.15s',
         }}
       >
         <span style={{
-          fontSize:'10px', fontWeight:700,
-          color: isParentActive ? '#a8d8f0' : '#2d3748',
-          minWidth:'14px', fontFamily:'monospace',
+          fontSize:'11px', fontWeight:700,
+          color: isParentActive ? '#a8d8f0' : '#4a5568',
+          minWidth:'18px', textAlign:'center',
+          fontFamily:'monospace',
         }}>
-          {section.icon}
+          {section.id}
         </span>
-        <span style={{
-          fontSize:'12px', fontWeight: isParentActive ? 600 : 400,
-          color: isParentActive ? '#c8eaff' : '#4a5568',
-          fontFamily:'Inter, sans-serif', flex:1, textAlign:'left',
-        }}>
-          {section.label}
-        </span>
-        {hasChildren && (
+        {sidebarOpen && (
           <span style={{
-            fontSize:'9px', color:'#2d3748',
+            fontSize:'12px', fontWeight: isParentActive ? 600 : 400,
+            color: isParentActive ? '#c8eaff' : '#6b7280',
+            fontFamily:'Inter, sans-serif', flex:1, textAlign:'left',
+          }}>
+            {section.label}
+          </span>
+        )}
+        {sidebarOpen && hasChildren && (
+          <span style={{
+            fontSize:'9px', color:'#4a5568',
             transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
             transition:'transform 0.15s',
             display:'inline-block',
@@ -147,7 +145,7 @@ function SidebarItem(props) {
         )}
       </button>
 
-      {hasChildren && expanded && (
+      {hasChildren && expanded && sidebarOpen && (
         <div>
           {section.children.map(function(child) {
             var childActive = active === child.id;
@@ -156,22 +154,23 @@ function SidebarItem(props) {
                 key={child.id}
                 onClick={function() { onSelect(child.id); }}
                 style={{
-                  display:'flex', alignItems:'center',
-                  width:'100%', padding:'6px 16px 6px 38px',
-                  background: childActive ? 'rgba(168,216,240,0.06)' : 'none',
+                  display:'flex', alignItems:'center', gap:'8px',
+                  width:'100%', padding:'6px 16px 6px 36px',
+                  background: childActive ? 'rgba(168,216,240,0.07)' : 'none',
                   border:'none', cursor:'pointer',
                   borderLeft: childActive ? '2px solid #a8d8f0' : '2px solid transparent',
                 }}
               >
                 <span style={{
                   fontSize:'10px', fontFamily:'monospace',
-                  color:'#2d3748', marginRight:'8px',
+                  color: childActive ? '#a8d8f0' : '#4a5568',
+                  minWidth:'20px',
                 }}>
                   {child.id}
                 </span>
                 <span style={{
                   fontSize:'11px', fontWeight: childActive ? 600 : 400,
-                  color: childActive ? '#a8d8f0' : '#2d3748',
+                  color: childActive ? '#a8d8f0' : '#4a5568',
                   fontFamily:'Inter, sans-serif',
                 }}>
                   {child.label}
@@ -186,8 +185,22 @@ function SidebarItem(props) {
 }
 
 export default function Home() {
-  const [active, setActive]     = useState('E');
-  const [expanded, setExpanded] = useState({ A:false, B:false, C:false, F:false });
+  const [active, setActive]       = useState('E');
+  const [expanded, setExpanded]   = useState({ A:false, B:false, C:false, F:false });
+  const [sidebarOpen, setSidebar] = useState(true);
+
+  useEffect(function() {
+    function handleResize() {
+      if (window.innerWidth < 768) {
+        setSidebar(false);
+      } else {
+        setSidebar(true);
+      }
+    }
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return function() { window.removeEventListener('resize', handleResize); };
+  }, []);
 
   function handleToggle(id) {
     setExpanded(function(prev) {
@@ -207,7 +220,12 @@ export default function Home() {
         return next;
       });
     }
+    if (window.innerWidth < 768) {
+      setSidebar(false);
+    }
   }
+
+  var currentWidth = sidebarOpen ? SIDEBAR_WIDTH : 48;
 
   var now     = new Date();
   var timeStr = now.toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit' });
@@ -216,15 +234,15 @@ export default function Home() {
   return (
     <div style={{
       minHeight:'100vh',
-      background:'#0b0f1a',
+      background:'#c8cbc5',
       display:'flex',
       fontFamily:'Inter, -apple-system, sans-serif',
     }}>
 
       {/* SIDEBAR */}
       <div style={{
-        width:'220px',
-        minWidth:'220px',
+        width: currentWidth + 'px',
+        minWidth: currentWidth + 'px',
         height:'100vh',
         position:'fixed',
         top:0, left:0,
@@ -234,23 +252,47 @@ export default function Home() {
         flexDirection:'column',
         zIndex:100,
         overflowY:'auto',
+        overflowX:'hidden',
+        transition:'width 0.2s ease',
       }}>
 
-        {/* LOGO */}
+        {/* HEADER SIDEBAR — meme hauteur que topbar */}
         <div style={{
-          padding:'20px 16px 16px',
+          height: TOPBAR_HEIGHT + 'px',
+          minHeight: TOPBAR_HEIGHT + 'px',
+          display:'flex',
+          alignItems:'center',
+          justifyContent: sidebarOpen ? 'space-between' : 'center',
+          padding: sidebarOpen ? '0 12px 0 16px' : '0',
           borderBottom:'1px solid #1a2332',
           flexShrink:0,
         }}>
-          <div style={{
-            fontSize:'16px', fontWeight:800, color:'#c8eaff',
-            fontFamily:'Inter, sans-serif', letterSpacing:'-0.5px',
-          }}>
-            Bloombi
-          </div>
-          <div style={{ fontSize:'10px', color:'#2d3748', marginTop:'2px' }}>
-            Terminal financier
-          </div>
+          {sidebarOpen && (
+            <div>
+              <div style={{
+                fontSize:'15px', fontWeight:800, color:'#c8eaff',
+                fontFamily:'Inter, sans-serif', letterSpacing:'-0.4px',
+                whiteSpace:'nowrap',
+              }}>
+                Bloombi
+              </div>
+              <div style={{ fontSize:'10px', color:'#4a5568', marginTop:'1px', whiteSpace:'nowrap' }}>
+                Terminal financier
+              </div>
+            </div>
+          )}
+          <button
+            onClick={function() { setSidebar(function(p) { return !p; }); }}
+            style={{
+              background:'none', border:'none', cursor:'pointer',
+              padding:'6px', color:'#4a5568',
+              display:'flex', flexDirection:'column', gap:'4px', alignItems:'center',
+            }}
+          >
+            <div style={{ width:'16px', height:'1.5px', background:'#4a5568', borderRadius:'1px' }} />
+            <div style={{ width:'16px', height:'1.5px', background:'#4a5568', borderRadius:'1px' }} />
+            <div style={{ width:'16px', height:'1.5px', background:'#4a5568', borderRadius:'1px' }} />
+          </button>
         </div>
 
         {/* NAV */}
@@ -264,38 +306,42 @@ export default function Home() {
                 onSelect={handleSelect}
                 expanded={expanded[section.id] || false}
                 onToggle={handleToggle}
+                sidebarOpen={sidebarOpen}
               />
             );
           })}
         </nav>
 
         {/* PIED SIDEBAR */}
-        <div style={{
-          padding:'12px 16px',
-          borderTop:'1px solid #1a2332',
-          flexShrink:0,
-        }}>
-          <div style={{ fontSize:'10px', color:'#2d3748', lineHeight:'1.6' }}>
-            {dateStr} {timeStr}
+        {sidebarOpen && (
+          <div style={{
+            padding:'12px 16px',
+            borderTop:'1px solid #1a2332',
+            flexShrink:0,
+          }}>
+            <div style={{ fontSize:'10px', color:'#4a5568', lineHeight:'1.6', whiteSpace:'nowrap' }}>
+              {dateStr} {timeStr}
+            </div>
+            <div style={{ fontSize:'10px', color:'#2d3748', marginTop:'2px', whiteSpace:'nowrap' }}>
+              Bloombi v2.0
+            </div>
           </div>
-          <div style={{ fontSize:'10px', color:'#2d3748', marginTop:'2px' }}>
-            Bloombi v2.0
-          </div>
-        </div>
+        )}
       </div>
 
       {/* MAIN */}
       <div style={{
-        marginLeft:'220px',
+        marginLeft: currentWidth + 'px',
         flex:1,
         display:'flex',
         flexDirection:'column',
         minHeight:'100vh',
+        transition:'margin-left 0.2s ease',
       }}>
 
-        {/* TOPBAR */}
+        {/* TOPBAR — meme hauteur que header sidebar */}
         <div style={{
-          height:'48px',
+          height: TOPBAR_HEIGHT + 'px',
           background:'#0b0f1a',
           borderBottom:'1px solid #1a2332',
           display:'flex',
@@ -306,21 +352,20 @@ export default function Home() {
           top:0,
           zIndex:50,
         }}>
-          <div style={{ fontSize:'13px', fontWeight:600, color:'#a8d8f0' }}>
+          <div style={{ fontSize:'13px', fontWeight:600, color:'#a8d8f0', fontFamily:'monospace' }}>
             {active}
           </div>
           <div style={{ textAlign:'right' }}>
             <div style={{ fontSize:'12px', fontWeight:700, color:'#22c55e' }}>300 EUR</div>
-            <div style={{ fontSize:'9px', color:'#2d3748' }}>Capital</div>
+            <div style={{ fontSize:'9px', color:'#4a5568' }}>Capital</div>
           </div>
         </div>
 
-        {/* CONTENT */}
+        {/* CONTENT — fond Pantone 6197C */}
         <div style={{
           flex:1,
           padding:'24px',
-          maxWidth:'900px',
-          width:'100%',
+          background:'#c8cbc5',
         }}>
           {renderModule(active)}
         </div>
