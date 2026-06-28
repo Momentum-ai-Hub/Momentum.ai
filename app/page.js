@@ -133,7 +133,7 @@ function MarketClocks() {
               fontSize:'13px', fontWeight:600,
               color:'#a8d8f0',
               fontFamily:'monospace', letterSpacing:'1px',
-              textShadow:'0 0 14px rgba(168,216,240,0.8)',
+              textShadow:'0 0 8px rgba(168,216,240,0.35)',
             }}>
               {time}
             </span>
@@ -299,7 +299,7 @@ export default function Home() {
   return (
     <div style={{
       minHeight:'100vh',
-      background:'#cdd2da',
+      background:'#8f9fa8',
       display:'flex',
       fontFamily:'Inter, -apple-system, sans-serif',
     }}>
@@ -449,7 +449,7 @@ export default function Home() {
         <div style={{
           flex:1,
           padding:'24px',
-          background:'#cdd2da',
+          background:'#8f9fa8',
         }}>
           {renderModule(active)}
         </div>
