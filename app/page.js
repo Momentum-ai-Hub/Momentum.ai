@@ -50,12 +50,12 @@ var SIDEBAR_WIDTH = 220;
 var TOPBAR_HEIGHT = 56;
 
 var MARKETS = [
-  { id:'TYO', label:'TYO', tz:'Asia/Tokyo',      open:9, openM:0,  close:15, closeM:30 },
-  { id:'HKG', label:'HKG', tz:'Asia/Hong_Kong',  open:9, openM:30, close:16, closeM:0  },
-  { id:'SEO', label:'SEO', tz:'Asia/Seoul',       open:9, openM:0,  close:15, closeM:30 },
-  { id:'FRA', label:'FRA', tz:'Europe/Berlin',    open:9, openM:0,  close:17, closeM:30 },
-  { id:'LON', label:'LON', tz:'Europe/London',    open:8, openM:0,  close:16, closeM:30 },
-  { id:'NYC', label:'NYC', tz:'America/New_York', open:9, openM:30, close:16, closeM:0  },
+  { id:'NYC', label:'NYC', tz:'America/New_York', open:9,  openM:30, close:16, closeM:0  },
+  { id:'LON', label:'LON', tz:'Europe/London',    open:8,  openM:0,  close:16, closeM:30 },
+  { id:'FRA', label:'FRA', tz:'Europe/Berlin',    open:9,  openM:0,  close:17, closeM:30 },
+  { id:'SEO', label:'SEO', tz:'Asia/Seoul',       open:9,  openM:0,  close:15, closeM:30 },
+  { id:'HKG', label:'HKG', tz:'Asia/Hong_Kong',  open:9,  openM:30, close:16, closeM:0  },
+  { id:'TYO', label:'TYO', tz:'Asia/Tokyo',       open:9,  openM:0,  close:15, closeM:30 },
 ];
 
 function getMarketStatus(tz, openH, openM, closeH, closeM) {
@@ -86,11 +86,10 @@ function getMarketStatus(tz, openH, openM, closeH, closeM) {
 }
 
 function getMarketTime(tz) {
-  var now = new Date();
   return new Intl.DateTimeFormat('fr-FR', {
     timeZone: tz,
     hour:'2-digit', minute:'2-digit', hour12:false,
-  }).format(now);
+  }).format(new Date());
 }
 
 function MarketClocks() {
@@ -111,7 +110,7 @@ function MarketClocks() {
       {MARKETS.map(function(m) {
         var status   = getMarketStatus(m.tz, m.open, m.openM, m.close, m.closeM);
         var time     = getMarketTime(m.tz);
-        var dotColor = status === 'open' ? '#22c55e' : status === 'pre' ? '#f59e0b' : '#374151';
+        var dotColor = status === 'open' ? '#22c55e' : status === 'pre' ? '#f59e0b' : '#2d3748';
 
         return (
           <div key={m.id} style={{
@@ -134,7 +133,7 @@ function MarketClocks() {
               fontSize:'13px', fontWeight:600,
               color:'#a8d8f0',
               fontFamily:'monospace', letterSpacing:'1px',
-              textShadow:'0 0 10px rgba(168,216,240,0.45)',
+              textShadow:'0 0 14px rgba(168,216,240,0.8)',
             }}>
               {time}
             </span>
@@ -292,15 +291,15 @@ export default function Home() {
     if (isMobile) { setSidebar(false); }
   }
 
-  var now     = new Date();
-  var dateStr = now.toLocaleDateString('fr-FR', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+  var now         = new Date();
+  var dateStr     = now.toLocaleDateString('fr-FR', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
   var dateDisplay = dateStr.charAt(0).toUpperCase() + dateStr.slice(1);
   var marginLeft  = isMobile ? 0 : (sidebarOpen ? SIDEBAR_WIDTH : 0);
 
   return (
     <div style={{
       minHeight:'100vh',
-      background:'#505d6b',
+      background:'#cdd2da',
       display:'flex',
       fontFamily:'Inter, -apple-system, sans-serif',
     }}>
@@ -325,8 +324,8 @@ export default function Home() {
           height:'100vh',
           position:'fixed',
           top:0, left:0,
-          background:'#0b0f1a',
-          borderRight:'1px solid #1a2332',
+          background:'#101f37',
+          borderRight:'1px solid #1a2e4a',
           display:'flex',
           flexDirection:'column',
           zIndex:100,
@@ -334,21 +333,21 @@ export default function Home() {
           overflowX:'hidden',
         }}>
 
-          {/* HEADER SIDEBAR — sans hamburger */}
+          {/* HEADER SIDEBAR */}
           <div style={{
             height: TOPBAR_HEIGHT + 'px',
             minHeight: TOPBAR_HEIGHT + 'px',
             display:'flex',
             alignItems:'center',
             padding:'0 16px',
-            borderBottom:'1px solid #1a2332',
+            borderBottom:'1px solid #1a2e4a',
             flexShrink:0,
           }}>
             <div>
               <div style={{
                 fontSize:'15px', fontWeight:800, color:'#c8eaff',
                 fontFamily:'Inter, sans-serif', letterSpacing:'-0.4px',
-                textShadow:'0 0 12px rgba(168,216,240,0.4)',
+                textShadow:'0 0 14px rgba(168,216,240,0.8)',
               }}>
                 Bloombi
               </div>
@@ -377,7 +376,7 @@ export default function Home() {
           {/* PIED */}
           <div style={{
             padding:'12px 16px',
-            borderTop:'1px solid #1a2332',
+            borderTop:'1px solid #1a2e4a',
             flexShrink:0,
           }}>
             <div style={{ fontSize:'10px', color:'#2d3748' }}>Bloombi v2.0</div>
@@ -398,8 +397,8 @@ export default function Home() {
         {/* TOPBAR */}
         <div style={{
           height: TOPBAR_HEIGHT + 'px',
-          background:'#0b0f1a',
-          borderBottom:'1px solid #1a2332',
+          background:'#101f37',
+          borderBottom:'1px solid #1a2e4a',
           display:'flex',
           alignItems:'center',
           padding:'0 16px',
@@ -408,7 +407,7 @@ export default function Home() {
           zIndex:50,
         }}>
 
-          {/* HAMBURGER — unique, dans topbar uniquement */}
+          {/* HAMBURGER */}
           <button
             onClick={function() { setSidebar(function(p) { return !p; }); }}
             style={{
@@ -427,16 +426,16 @@ export default function Home() {
           <div style={{
             fontSize:'11px', fontWeight:500,
             color:'#a8d8f0',
-            textShadow:'0 0 10px rgba(168,216,240,0.4)',
+            textShadow:'0 0 14px rgba(168,216,240,0.8)',
             whiteSpace:'nowrap', flexShrink:0, marginRight:'16px',
           }}>
             {dateDisplay}
           </div>
 
           {/* SEPARATEUR */}
-          <div style={{ width:'1px', height:'20px', background:'#1a2332', flexShrink:0, marginRight:'16px' }} />
+          <div style={{ width:'1px', height:'20px', background:'#1a2e4a', flexShrink:0, marginRight:'16px' }} />
 
-          {/* HORLOGES CENTREES */}
+          {/* HORLOGES */}
           <MarketClocks />
 
           {/* CAPITAL */}
@@ -450,7 +449,7 @@ export default function Home() {
         <div style={{
           flex:1,
           padding:'24px',
-          background:'#505d6b',
+          background:'#cdd2da',
         }}>
           {renderModule(active)}
         </div>
