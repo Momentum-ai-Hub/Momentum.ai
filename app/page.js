@@ -49,6 +49,100 @@ var SECTIONS = [
 var SIDEBAR_WIDTH = 220;
 var TOPBAR_HEIGHT = 56;
 
+var MARKETS = [
+  { id:'TYO', label:'TYO', tz:'Asia/Tokyo',         open:9,  close:15, off:0  },
+  { id:'HKG', label:'HKG', tz:'Asia/Hong_Kong',     open:9,  close:16, off:0  },
+  { id:'SEO', label:'SEO', tz:'Asia/Seoul',          open:9,  close:15, off:30 },
+  { id:'FRA', label:'FRA', tz:'Europe/Berlin',       open:9,  close:17, off:30 },
+  { id:'LON', label:'LON', tz:'Europe/London',       open:8,  close:16, off:30 },
+  { id:'NYC', label:'NYC', tz:'America/New_York',    open:9,  close:16, off:30 },
+];
+
+function getMarketStatus(tz, openH, openM, closeH, closeM) {
+  var now = new Date();
+  var formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    hour:'2-digit', minute:'2-digit', hour12:false,
+    weekday:'short',
+  });
+  var parts = formatter.formatToParts(now);
+  var weekday = '';
+  var hour = 0;
+  var minute = 0;
+  parts.forEach(function(p) {
+    if (p.type === 'weekday') weekday = p.value;
+    if (p.type === 'hour')    hour    = parseInt(p.value, 10);
+    if (p.type === 'minute')  minute  = parseInt(p.value, 10);
+  });
+  var isWeekend = weekday === 'Sat' || weekday === 'Sun';
+  if (isWeekend) return 'closed';
+  var nowMins   = hour * 60 + minute;
+  var openMins  = openH * 60 + openM;
+  var closeMins = closeH * 60 + closeM;
+  var preMins   = openMins - 60;
+  if (nowMins >= openMins && nowMins < closeMins) return 'open';
+  if (nowMins >= preMins  && nowMins < openMins)  return 'pre';
+  return 'closed';
+}
+
+function getMarketTime(tz) {
+  var now = new Date();
+  var formatter = new Intl.DateTimeFormat('fr-FR', {
+    timeZone: tz,
+    hour:'2-digit', minute:'2-digit', hour12:false,
+  });
+  return formatter.format(now);
+}
+
+function MarketClocks() {
+  const [tick, setTick] = useState(0);
+
+  useEffect(function() {
+    var interval = setInterval(function() {
+      setTick(function(t) { return t + 1; });
+    }, 30000);
+    return function() { clearInterval(interval); };
+  }, []);
+
+  return (
+    <div style={{
+      display:'flex', alignItems:'center', gap:'12px', overflowX:'auto',
+    }}>
+      {MARKETS.map(function(m) {
+        var openM  = m.off > 0 ? m.open  : m.open;
+        var closeM = m.off > 0 ? m.close : m.close;
+        var status = getMarketStatus(m.tz, m.open, m.off, m.close, m.off);
+        var time   = getMarketTime(m.tz);
+        var dotColor = status === 'open' ? '#22c55e' : status === 'pre' ? '#f59e0b' : '#374151';
+        var timeColor = status === 'open' ? '#c8eaff' : '#4a5568';
+
+        return (
+          <div key={m.id} style={{
+            display:'flex', alignItems:'center', gap:'5px', flexShrink:0,
+          }}>
+            <div style={{
+              width:'5px', height:'5px', borderRadius:'50%',
+              background: dotColor, flexShrink:0,
+            }} />
+            <span style={{
+              fontSize:'10px', fontWeight:600, color:'#4a5568',
+              fontFamily:'monospace', letterSpacing:'0.5px',
+            }}>
+              {m.label}
+            </span>
+            <span style={{
+              fontSize:'10px', fontWeight:500, color: timeColor,
+              fontFamily:'monospace',
+            }}>
+              {time}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function PlaceholderModule(props) {
   return (
     <div style={{
@@ -87,7 +181,6 @@ function SidebarItem(props) {
   var onSelect   = props.onSelect;
   var expanded   = props.expanded;
   var onToggle   = props.onToggle;
-  var sidebarOpen = props.sidebarOpen;
 
   var hasChildren    = section.children && section.children.length > 0;
   var isParentActive = active === section.id || (
@@ -98,18 +191,11 @@ function SidebarItem(props) {
     <div>
       <button
         onClick={function() {
-          if (hasChildren) {
-            onToggle(section.id);
-          } else {
-            onSelect(section.id);
-          }
+          if (hasChildren) { onToggle(section.id); } else { onSelect(section.id); }
         }}
-        title={section.label}
         style={{
-          display:'flex', alignItems:'center', gap: sidebarOpen ? '10px' : '0px',
-          width:'100%',
-          padding: sidebarOpen ? '9px 16px' : '9px 0px',
-          justifyContent: sidebarOpen ? 'flex-start' : 'center',
+          display:'flex', alignItems:'center', gap:'10px',
+          width:'100%', padding:'9px 16px',
           background: isParentActive && !hasChildren ? 'rgba(168,216,240,0.10)' : 'none',
           border:'none', cursor:'pointer',
           borderLeft: isParentActive && !hasChildren ? '2px solid #a8d8f0' : '2px solid transparent',
@@ -117,35 +203,24 @@ function SidebarItem(props) {
         }}
       >
         <span style={{
-          fontSize:'11px', fontWeight:700,
-          color: isParentActive ? '#a8d8f0' : '#4a5568',
-          minWidth:'18px', textAlign:'center',
-          fontFamily:'monospace',
+          fontSize:'12px', fontWeight: isParentActive ? 600 : 400,
+          color: isParentActive ? '#c8eaff' : '#6b7280',
+          fontFamily:'Inter, sans-serif', flex:1, textAlign:'left',
         }}>
-          {section.id}
+          {section.label}
         </span>
-        {sidebarOpen && (
-          <span style={{
-            fontSize:'12px', fontWeight: isParentActive ? 600 : 400,
-            color: isParentActive ? '#c8eaff' : '#6b7280',
-            fontFamily:'Inter, sans-serif', flex:1, textAlign:'left',
-          }}>
-            {section.label}
-          </span>
-        )}
-        {sidebarOpen && hasChildren && (
+        {hasChildren && (
           <span style={{
             fontSize:'9px', color:'#4a5568',
             transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
-            transition:'transform 0.15s',
-            display:'inline-block',
+            transition:'transform 0.15s', display:'inline-block',
           }}>
             v
           </span>
         )}
       </button>
 
-      {hasChildren && expanded && sidebarOpen && (
+      {hasChildren && expanded && (
         <div>
           {section.children.map(function(child) {
             var childActive = active === child.id;
@@ -154,20 +229,13 @@ function SidebarItem(props) {
                 key={child.id}
                 onClick={function() { onSelect(child.id); }}
                 style={{
-                  display:'flex', alignItems:'center', gap:'8px',
-                  width:'100%', padding:'6px 16px 6px 36px',
+                  display:'flex', alignItems:'center',
+                  width:'100%', padding:'6px 16px 6px 28px',
                   background: childActive ? 'rgba(168,216,240,0.07)' : 'none',
                   border:'none', cursor:'pointer',
                   borderLeft: childActive ? '2px solid #a8d8f0' : '2px solid transparent',
                 }}
               >
-                <span style={{
-                  fontSize:'10px', fontFamily:'monospace',
-                  color: childActive ? '#a8d8f0' : '#4a5568',
-                  minWidth:'20px',
-                }}>
-                  {child.id}
-                </span>
                 <span style={{
                   fontSize:'11px', fontWeight: childActive ? 600 : 400,
                   color: childActive ? '#a8d8f0' : '#4a5568',
@@ -187,15 +255,14 @@ function SidebarItem(props) {
 export default function Home() {
   const [active, setActive]       = useState('E');
   const [expanded, setExpanded]   = useState({ A:false, B:false, C:false, F:false });
-  const [sidebarOpen, setSidebar] = useState(true);
+  const [sidebarOpen, setSidebar] = useState(false);
+  const [isMobile, setIsMobile]   = useState(false);
 
   useEffect(function() {
     function handleResize() {
-      if (window.innerWidth < 768) {
-        setSidebar(false);
-      } else {
-        setSidebar(true);
-      }
+      var mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      setSidebar(!mobile);
     }
     handleResize();
     window.addEventListener('resize', handleResize);
@@ -220,16 +287,15 @@ export default function Home() {
         return next;
       });
     }
-    if (window.innerWidth < 768) {
-      setSidebar(false);
-    }
+    if (isMobile) { setSidebar(false); }
   }
 
-  var currentWidth = sidebarOpen ? SIDEBAR_WIDTH : 48;
-
   var now     = new Date();
-  var timeStr = now.toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit' });
-  var dateStr = now.toLocaleDateString('fr-FR', { day:'2-digit', month:'short' });
+  var dateStr = now.toLocaleDateString('fr-FR', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+  var dateDisplay = dateStr.charAt(0).toUpperCase() + dateStr.slice(1);
+
+  var sidebarWidth = sidebarOpen ? SIDEBAR_WIDTH : 0;
+  var marginLeft   = isMobile ? 0 : (sidebarOpen ? SIDEBAR_WIDTH : 0);
 
   return (
     <div style={{
@@ -239,99 +305,101 @@ export default function Home() {
       fontFamily:'Inter, -apple-system, sans-serif',
     }}>
 
-      {/* SIDEBAR */}
-      <div style={{
-        width: currentWidth + 'px',
-        minWidth: currentWidth + 'px',
-        height:'100vh',
-        position:'fixed',
-        top:0, left:0,
-        background:'#0b0f1a',
-        borderRight:'1px solid #1a2332',
-        display:'flex',
-        flexDirection:'column',
-        zIndex:100,
-        overflowY:'auto',
-        overflowX:'hidden',
-        transition:'width 0.2s ease',
-      }}>
+      {/* OVERLAY MOBILE */}
+      {isMobile && sidebarOpen && (
+        <div
+          onClick={function() { setSidebar(false); }}
+          style={{
+            position:'fixed', inset:0,
+            background:'rgba(0,0,0,0.5)',
+            zIndex:90,
+          }}
+        />
+      )}
 
-        {/* HEADER SIDEBAR — meme hauteur que topbar */}
+      {/* SIDEBAR */}
+      {sidebarOpen && (
         <div style={{
-          height: TOPBAR_HEIGHT + 'px',
-          minHeight: TOPBAR_HEIGHT + 'px',
+          width: SIDEBAR_WIDTH + 'px',
+          minWidth: SIDEBAR_WIDTH + 'px',
+          height:'100vh',
+          position:'fixed',
+          top:0, left:0,
+          background:'#0b0f1a',
+          borderRight:'1px solid #1a2332',
           display:'flex',
-          alignItems:'center',
-          justifyContent: sidebarOpen ? 'space-between' : 'center',
-          padding: sidebarOpen ? '0 12px 0 16px' : '0',
-          borderBottom:'1px solid #1a2332',
-          flexShrink:0,
+          flexDirection:'column',
+          zIndex:100,
+          overflowY:'auto',
+          overflowX:'hidden',
         }}>
-          {sidebarOpen && (
+
+          {/* HEADER SIDEBAR */}
+          <div style={{
+            height: TOPBAR_HEIGHT + 'px',
+            minHeight: TOPBAR_HEIGHT + 'px',
+            display:'flex',
+            alignItems:'center',
+            justifyContent:'space-between',
+            padding:'0 12px 0 16px',
+            borderBottom:'1px solid #1a2332',
+            flexShrink:0,
+          }}>
             <div>
               <div style={{
                 fontSize:'15px', fontWeight:800, color:'#c8eaff',
                 fontFamily:'Inter, sans-serif', letterSpacing:'-0.4px',
-                whiteSpace:'nowrap',
               }}>
                 Bloombi
               </div>
-              <div style={{ fontSize:'10px', color:'#4a5568', marginTop:'1px', whiteSpace:'nowrap' }}>
+              <div style={{ fontSize:'10px', color:'#4a5568', marginTop:'1px' }}>
                 Terminal financier
               </div>
             </div>
-          )}
-          <button
-            onClick={function() { setSidebar(function(p) { return !p; }); }}
-            style={{
-              background:'none', border:'none', cursor:'pointer',
-              padding:'6px', color:'#4a5568',
-              display:'flex', flexDirection:'column', gap:'4px', alignItems:'center',
-            }}
-          >
-            <div style={{ width:'16px', height:'1.5px', background:'#4a5568', borderRadius:'1px' }} />
-            <div style={{ width:'16px', height:'1.5px', background:'#4a5568', borderRadius:'1px' }} />
-            <div style={{ width:'16px', height:'1.5px', background:'#4a5568', borderRadius:'1px' }} />
-          </button>
-        </div>
+            <button
+              onClick={function() { setSidebar(false); }}
+              style={{
+                background:'none', border:'none', cursor:'pointer',
+                padding:'6px', display:'flex', flexDirection:'column',
+                gap:'4px', alignItems:'center',
+              }}
+            >
+              <div style={{ width:'16px', height:'1.5px', background:'#4a5568', borderRadius:'1px' }} />
+              <div style={{ width:'16px', height:'1.5px', background:'#4a5568', borderRadius:'1px' }} />
+              <div style={{ width:'16px', height:'1.5px', background:'#4a5568', borderRadius:'1px' }} />
+            </button>
+          </div>
 
-        {/* NAV */}
-        <nav style={{ flex:1, paddingTop:'8px', paddingBottom:'16px' }}>
-          {SECTIONS.map(function(section) {
-            return (
-              <SidebarItem
-                key={section.id}
-                section={section}
-                active={active}
-                onSelect={handleSelect}
-                expanded={expanded[section.id] || false}
-                onToggle={handleToggle}
-                sidebarOpen={sidebarOpen}
-              />
-            );
-          })}
-        </nav>
+          {/* NAV */}
+          <nav style={{ flex:1, paddingTop:'8px', paddingBottom:'16px' }}>
+            {SECTIONS.map(function(section) {
+              return (
+                <SidebarItem
+                  key={section.id}
+                  section={section}
+                  active={active}
+                  onSelect={handleSelect}
+                  expanded={expanded[section.id] || false}
+                  onToggle={handleToggle}
+                />
+              );
+            })}
+          </nav>
 
-        {/* PIED SIDEBAR */}
-        {sidebarOpen && (
+          {/* PIED SIDEBAR */}
           <div style={{
             padding:'12px 16px',
             borderTop:'1px solid #1a2332',
             flexShrink:0,
           }}>
-            <div style={{ fontSize:'10px', color:'#4a5568', lineHeight:'1.6', whiteSpace:'nowrap' }}>
-              {dateStr} {timeStr}
-            </div>
-            <div style={{ fontSize:'10px', color:'#2d3748', marginTop:'2px', whiteSpace:'nowrap' }}>
-              Bloombi v2.0
-            </div>
+            <div style={{ fontSize:'10px', color:'#2d3748' }}>Bloombi v2.0</div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* MAIN */}
       <div style={{
-        marginLeft: currentWidth + 'px',
+        marginLeft: marginLeft + 'px',
         flex:1,
         display:'flex',
         flexDirection:'column',
@@ -339,29 +407,58 @@ export default function Home() {
         transition:'margin-left 0.2s ease',
       }}>
 
-        {/* TOPBAR — meme hauteur que header sidebar */}
+        {/* TOPBAR */}
         <div style={{
           height: TOPBAR_HEIGHT + 'px',
           background:'#0b0f1a',
           borderBottom:'1px solid #1a2332',
           display:'flex',
           alignItems:'center',
-          justifyContent:'space-between',
-          padding:'0 24px',
+          gap:'16px',
+          padding:'0 16px 0 12px',
           position:'sticky',
           top:0,
           zIndex:50,
         }}>
-          <div style={{ fontSize:'13px', fontWeight:600, color:'#a8d8f0', fontFamily:'monospace' }}>
-            {active}
+
+          {/* HAMBURGER */}
+          <button
+            onClick={function() { setSidebar(function(p) { return !p; }); }}
+            style={{
+              background:'none', border:'none', cursor:'pointer',
+              padding:'6px', display:'flex', flexDirection:'column',
+              gap:'4px', alignItems:'center', flexShrink:0,
+            }}
+          >
+            <div style={{ width:'16px', height:'1.5px', background:'#6b7280', borderRadius:'1px' }} />
+            <div style={{ width:'16px', height:'1.5px', background:'#6b7280', borderRadius:'1px' }} />
+            <div style={{ width:'16px', height:'1.5px', background:'#6b7280', borderRadius:'1px' }} />
+          </button>
+
+          {/* DATE */}
+          <div style={{
+            fontSize:'11px', fontWeight:500, color:'#6b7280',
+            whiteSpace:'nowrap', flexShrink:0,
+          }}>
+            {dateDisplay}
           </div>
-          <div style={{ textAlign:'right' }}>
+
+          {/* SEPARATEUR */}
+          <div style={{ width:'1px', height:'20px', background:'#1a2332', flexShrink:0 }} />
+
+          {/* HORLOGES */}
+          <div style={{ flex:1, overflow:'hidden' }}>
+            <MarketClocks />
+          </div>
+
+          {/* CAPITAL */}
+          <div style={{ textAlign:'right', flexShrink:0 }}>
             <div style={{ fontSize:'12px', fontWeight:700, color:'#22c55e' }}>300 EUR</div>
             <div style={{ fontSize:'9px', color:'#4a5568' }}>Capital</div>
           </div>
         </div>
 
-        {/* CONTENT — fond Pantone 6197C */}
+        {/* CONTENT */}
         <div style={{
           flex:1,
           padding:'24px',
